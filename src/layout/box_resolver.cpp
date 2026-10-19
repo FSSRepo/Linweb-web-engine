@@ -13,9 +13,9 @@ namespace linweb
 {
 
     /**
-     * @brief Resuelve las dimensiones iniciales (margenes, rellenos, bordes, ancho y alto).
+     * @brief Resolves the initial dimensions (margins, paddings, borders, width and height).
      *
-     * @param container_dimensions Las dimensiones del contenedor padre.
+     * @param container_dimensions The dimensions of the parent container.
      */
     void LayoutBox::resolve_dimensions(Dimensions container_dimensions)
     {
@@ -98,11 +98,11 @@ namespace linweb
     }
 
     /**
-     * @brief Resuelve los margenes, rellenos y bordes de la caja.
+     * @brief Resolves the margins, paddings and borders of the box.
      *
-     * @param parent_width Ancho del contenedor padre.
-     * @param parent_height Alto del contenedor padre.
-     * @param font_size Tamano de fuente actual para unidades relativas.
+     * @param parent_width Width of the parent container.
+     * @param parent_height Height of the parent container.
+     * @param font_size Current font size for relative units.
      */
     void LayoutBox::resolve_margin_padding_border(float parent_width, float parent_height, float font_size)
     {
@@ -295,10 +295,10 @@ namespace linweb
     }
 
     /**
-     * @brief Calcula las dimensiones para un nodo de texto.
+     * @brief Calculates the dimensions for a text node.
      *
-     * @param font_size Tamano de fuente.
-     * @param line_height Altura de linea.
+     * @param font_size Font size.
+     * @param line_height Line height.
      */
     void LayoutBox::resolve_text_node_dimensions(float font_size, float line_height)
     {
@@ -318,10 +318,10 @@ namespace linweb
     }
 
     /**
-     * @brief Calcula el ancho del contenido de la caja.
+     * @brief Calculates the content width of the box.
      *
-     * @param container_dimensions Dimensiones del contenedor.
-     * @param font_size Tamano de fuente actual.
+     * @param container_dimensions Container dimensions.
+     * @param font_size Current font size.
      */
     void LayoutBox::resolve_content_width(Dimensions container_dimensions, float font_size)
     {
@@ -429,13 +429,13 @@ namespace linweb
     }
 
     /**
-     * @brief Calcula la altura final de la caja basandose en su contenido o propiedades especificadas.
+     * @brief Calculates the final height of the box based on its content or specified properties.
      *
-     * @param container_dimensions Dimensiones del contenedor.
-     * @param current_y_offset Desplazamiento Y final del contenido.
-     * @param max_line_height Altura de la ultima linea.
-     * @param max_x_offset Ancho maximo alcanzado por el contenido.
-     * @param current_x_offset Desplazamiento X final.
+     * @param container_dimensions Container dimensions.
+     * @param current_y_offset Final Y offset of the content.
+     * @param max_line_height Height of the last line.
+     * @param max_x_offset Maximum width reached by the content.
+     * @param current_x_offset Final X offset.
      */
     void LayoutBox::resolve_height(Dimensions container_dimensions, float current_y_offset, float max_line_height, float max_x_offset, float current_x_offset)
     {

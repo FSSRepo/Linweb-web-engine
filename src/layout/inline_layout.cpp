@@ -8,16 +8,16 @@ namespace linweb
 {
 
     /**
-     * @brief Realiza el diseño de un hijo inline o inline-block.
+     * @brief Lays out an inline or inline-block child.
      *
-     * @param child El hijo a posicionar.
-     * @param container_dimensions Dimensiones del contenedor.
-     * @param current_x_offset Desplazamiento X actual en la linea.
-     * @param current_y_offset Desplazamiento Y acumulado.
-     * @param max_line_height Altura maxima de la linea actual.
-     * @param max_x_offset Ancho maximo alcanzado.
-     * @param current_line Vector de elementos en la linea actual.
-     * @param line_height Altura de linea a aplicar.
+     * @param child The child to position.
+     * @param container_dimensions Container dimensions.
+     * @param current_x_offset Current X offset on the line.
+     * @param current_y_offset Accumulated Y offset.
+     * @param max_line_height Maximum height of the current line.
+     * @param max_x_offset Maximum width reached.
+     * @param current_line Vector of elements on the current line.
+     * @param line_height Line height to apply.
      */
     void LayoutBox::layout_inline_child(const std::shared_ptr<LayoutBox> &child, Dimensions container_dimensions, float &current_x_offset, float &current_y_offset, float &max_line_height, float &max_x_offset, std::vector<std::shared_ptr<LayoutBox>> &current_line, float line_height)
     {

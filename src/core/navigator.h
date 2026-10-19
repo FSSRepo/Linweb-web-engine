@@ -5,10 +5,10 @@
 namespace linweb {
 
 /**
- * @brief Sistema de navegación entre páginas HTML locales.
+ * @brief Navigation system between local HTML pages.
  *
- * Mantiene un historial de URLs visitadas y permite navegar
- * hacia adelante y hacia atrás.
+ * Maintains a history of visited URLs and allows navigating
+ * forward and backward.
  */
 class Navigator {
 private:
@@ -19,25 +19,25 @@ private:
 public:
     Navigator();
 
-    /** Carga una nueva página HTML y la agrega al historial */
+    /** Loads a new HTML page and adds it to the history */
     void load_page(const std::string& url);
 
-    /** Navega atrás en el historial */
+    /** Navigates back in the history */
     void go_back();
 
-    /** Navega adelante en el historial */
+    /** Navigates forward in the history */
     void go_forward();
 
-    /** Retorna la URL actual */
+    /** Returns the current URL */
     std::string get_current_url() const;
 
-    /** Retorna el historial completo de navegación */
+    /** Returns the full navigation history */
     const std::vector<std::string>& get_history() const;
 
-    /** Verifica si puede ir atrás */
+    /** Checks whether it can go back */
     bool can_go_back() const;
 
-    /** Verifica si puede ir adelante */
+    /** Checks whether it can go forward */
     bool can_go_forward() const;
 };
 

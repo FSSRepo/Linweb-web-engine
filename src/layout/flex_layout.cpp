@@ -37,12 +37,12 @@ namespace linweb
     }
 
     /**
-     * @brief Realiza un pase inicial de diseno para Flexbox para determinar el tamano de los elementos.
+     * @brief Performs an initial design pass for Flexbox to determine the elements' size.
      *
-     * @param children Hijos para procesar.
-     * @param is_column Verdadero si la direccion es columna.
-     * @param main_offset Referencia para acumular el tamano en el eje principal.
-     * @param cross_size Referencia para almacenar el tamano maximo en el eje transversal.
+     * @param children Children to process.
+     * @param is_column True if the direction is column.
+     * @param main_offset Reference to accumulate the size on the main axis.
+     * @param cross_size Reference to store the maximum size on the cross axis.
      */
     void LayoutBox::flex_initial_pass(Dimensions container_dimensions, const std::vector<std::shared_ptr<LayoutBox>> &children, bool is_column, float &main_offset, float &cross_size)
     {
@@ -82,11 +82,11 @@ namespace linweb
     }
 
     /**
-     * @brief Distribuye el espacio extra entre los hijos segun la propiedad flex-grow.
+     * @brief Distributes the extra space among the children according to the flex-grow property.
      *
-     * @param children Hijos de Flexbox.
-     * @param is_column Verdadero si la direccion es columna.
-     * @param main_offset Tamano total de los hijos en el eje principal (se actualiza).
+     * @param children Flexbox children.
+     * @param is_column True if the direction is column.
+     * @param main_offset Total size of the children on the main axis (updated).
      */
     void LayoutBox::flex_distribute_grow(Dimensions container_dimensions, const std::vector<std::shared_ptr<LayoutBox>> &children, bool is_column, float &main_offset)
     {
@@ -197,13 +197,13 @@ namespace linweb
     }
 
     /**
-     * @brief Calcula el desplazamiento inicial y el espacio entre elementos basado en justify-content.
+     * @brief Calculates the initial offset and the space between elements based on justify-content.
      *
-     * @param children Hijos de Flexbox.
-     * @param is_column Verdadero si la direccion es columna.
-     * @param main_offset Tamano total de los hijos en el eje principal.
-     * @param start_main_offset Referencia para almacenar el desplazamiento de inicio.
-     * @param main_gap Referencia para almacenar el espacio entre elementos.
+     * @param children Flexbox children.
+     * @param is_column True if the direction is column.
+     * @param main_offset Total size of the children on the main axis.
+     * @param start_main_offset Reference to store the starting offset.
+     * @param main_gap Reference to store the space between elements.
      */
     void LayoutBox::flex_justify_content(const std::vector<std::shared_ptr<LayoutBox>> &children, bool is_column, float main_offset, float &start_main_offset, float &main_gap)
     {
@@ -250,12 +250,12 @@ namespace linweb
     }
 
     /**
-     * @brief Alinea y posiciona los elementos de Flexbox en el eje transversal.
+     * @brief Aligns and positions Flexbox elements on the cross axis.
      *
-     * @param children Hijos de Flexbox.
-     * @param is_column Verdadero si la direccion es columna.
-     * @param start_main_offset Desplazamiento inicial en el eje principal.
-     * @param main_gap Espacio entre elementos.
+     * @param children Flexbox children.
+     * @param is_column True if the direction is column.
+     * @param start_main_offset Initial offset on the main axis.
+     * @param main_gap Space between elements.
      */
     void LayoutBox::flex_align_and_position(const std::vector<std::shared_ptr<LayoutBox>> &children, bool is_column, float start_main_offset, float main_gap)
     {
@@ -365,10 +365,10 @@ namespace linweb
     }
 
     /**
-     * @brief Realiza el diseno Flexbox.
+     * @brief Performs the Flexbox layout.
      *
-     * @param container_dimensions Dimensiones del contenedor.
-     * @param normal_flow_children Hijos en el flujo normal.
+     * @param container_dimensions Container dimensions.
+     * @param normal_flow_children Children in the normal flow.
      */
     void LayoutBox::layout_flex(Dimensions container_dimensions, const std::vector<std::shared_ptr<LayoutBox>> &normal_flow_children)
     {

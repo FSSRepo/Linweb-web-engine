@@ -36,6 +36,7 @@ struct RendererState {
     static GLint program_color_u_size;
     static GLint program_color_u_radius;
     static GLint program_color_u_blur;
+    static GLint program_color_u_shadow;
     static GLint program_color_u_invert;
     static GLint program_color_u_grad_type;
     static GLint program_color_u_grad_c1;

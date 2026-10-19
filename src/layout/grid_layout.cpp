@@ -10,11 +10,11 @@ namespace linweb
 {
 
     /**
-     * @brief Resuelve el ancho de las columnas para el diseño de rejilla (Grid).
+     * @brief Resolves the column widths for the grid layout (Grid).
      *
-     * @param container_width Ancho del contenedor.
-     * @param col_widths Vector que se llenara con los anchos de las columnas calculados.
-     * @param total_width Referencia para almacenar el ancho total calculado.
+     * @param container_width Container width.
+     * @param col_widths Vector that will be filled with the computed column widths.
+     * @param total_width Reference to store the computed total width.
      */
     void LayoutBox::grid_resolve_columns(float container_width, std::vector<float> &col_widths, float &total_width)
     {
@@ -121,12 +121,12 @@ namespace linweb
     }
 
     /**
-     * @brief Posiciona los elementos dentro de la rejilla (Grid).
+     * @brief Positions the elements inside the grid (Grid).
      *
-     * @param children Hijos en el flujo normal para posicionar.
-     * @param col_widths Anchos de las columnas resueltos.
-     * @param total_height Referencia para almacenar el alto total de la rejilla.
-     * @param max_width Referencia para almacenar el ancho maximo.
+     * @param children Children in the normal flow to position.
+     * @param col_widths Resolved column widths.
+     * @param total_height Reference to store the total height of the grid.
+     * @param max_width Reference to store the maximum width.
      */
     void LayoutBox::grid_layout_items(Dimensions container_dimensions, const std::vector<std::shared_ptr<LayoutBox>> &children, const std::vector<float> &col_widths, const std::vector<float> &explicit_row_heights, float &total_height, float &max_width)
     {
@@ -312,10 +312,10 @@ namespace linweb
     }
 
     /**
-     * @brief Realiza el diseño de rejilla (Grid).
+     * @brief Performs the grid layout (Grid).
      *
-     * @param container_dimensions Dimensiones del contenedor.
-     * @param normal_flow_children Hijos en el flujo normal.
+     * @param container_dimensions Container dimensions.
+     * @param normal_flow_children Children in the normal flow.
      */
     void LayoutBox::layout_grid(Dimensions container_dimensions, const std::vector<std::shared_ptr<LayoutBox>> &normal_flow_children)
     {

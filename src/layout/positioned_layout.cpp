@@ -8,9 +8,9 @@ namespace linweb
 {
 
     /**
-     * @brief Aplica el desplazamiento para elementos con posicion relativa.
+     * @brief Applies the offset for elements with relative position.
      *
-     * @param container_dimensions Dimensiones del contenedor.
+     * @param container_dimensions Container dimensions.
      */
     void LayoutBox::apply_relative_position(Dimensions container_dimensions)
     {

@@ -2,7 +2,7 @@
 
 #ifdef WESTON_PLATFORM
     #define LINWEB_PLATFORM_WESTON 1
-#elif defined(DXORG_PLATFORM)
+#elif defined(XORG_PLATFORM)
     #define LINWEB_PLATFORM_XORG 1
 #else
     #define LINWEB_PLATFORM_GLFW 1

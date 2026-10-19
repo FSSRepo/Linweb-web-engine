@@ -4,7 +4,7 @@
 
 namespace linweb {
 
-void Renderer::draw_rect(float x, float y, float width, float height, float r, float g, float b, float a, float radius, float blur, float invert, const Gradient& gradient, float border_width) {
+void Renderer::draw_rect(float x, float y, float width, float height, float r, float g, float b, float a, float radius, float blur, float invert, const Gradient& gradient, float border_width, bool is_shadow) {
     if (!RendererState::program_color || RendererState::vbo_color == 0) return;
     if (width <= 0.0f || height <= 0.0f) return;
 
@@ -16,6 +16,7 @@ void Renderer::draw_rect(float x, float y, float width, float height, float r, f
     glUniform2f(RendererState::program_color_u_size, width, height);
     glUniform1f(RendererState::program_color_u_radius, radius);
     glUniform1f(RendererState::program_color_u_blur, blur);
+    glUniform1f(RendererState::program_color_u_shadow, is_shadow ? 1.0f : 0.0f);
     glUniform1f(RendererState::program_color_u_invert, invert);
     glUniform1f(RendererState::program_color_u_border_width, border_width);
 

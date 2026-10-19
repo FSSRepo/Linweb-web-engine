@@ -649,7 +649,7 @@ namespace linweb {
                     float sw = full_bg_w + shadow.spread * 2.0f;
                     float sh = full_bg_h + shadow.spread * 2.0f;
 
-                    draw_rect(sx, sy, sw, sh, shadow.r, shadow.g, shadow.b, shadow.a * total_opacity, radius + shadow.spread, shadow.blur + combined_filter.blur, combined_filter.invert, Gradient());
+                    draw_rect(sx, sy, sw, sh, shadow.r, shadow.g, shadow.b, shadow.a * total_opacity, radius + shadow.spread, shadow.blur + combined_filter.blur, combined_filter.invert, Gradient(), 0.0f, true);
                 }
 
                 bool is_image_or_svg = (box->styled_node->node->tag_name == "img" || box->styled_node->node->tag_name == "svg");
@@ -661,7 +661,7 @@ namespace linweb {
                     float sw = full_bg_w + combined_filter.dropShadow.spread * 2.0f;
                     float sh = full_bg_h + combined_filter.dropShadow.spread * 2.0f;
 
-                    draw_rect(sx, sy, sw, sh, combined_filter.dropShadow.r, combined_filter.dropShadow.g, combined_filter.dropShadow.b, combined_filter.dropShadow.a * total_opacity, radius + combined_filter.dropShadow.spread, combined_filter.dropShadow.blur + combined_filter.blur, combined_filter.invert, Gradient());
+                    draw_rect(sx, sy, sw, sh, combined_filter.dropShadow.r, combined_filter.dropShadow.g, combined_filter.dropShadow.b, combined_filter.dropShadow.a * total_opacity, radius + combined_filter.dropShadow.spread, combined_filter.dropShadow.blur + combined_filter.blur, combined_filter.invert, Gradient(), 0.0f, true);
                 }
 
                 bool has_border = border_top > 0 || border_bottom > 0 || border_left > 0 || border_right > 0;

@@ -41,6 +41,7 @@ namespace linweb {
     GLint RendererState::program_color_u_size = -1;
     GLint RendererState::program_color_u_radius = -1;
     GLint RendererState::program_color_u_blur = -1;
+    GLint RendererState::program_color_u_shadow = -1;
     GLint RendererState::program_color_u_invert = -1;
     GLint RendererState::program_color_u_grad_type = -1;
     GLint RendererState::program_color_u_grad_c1 = -1;
@@ -116,6 +117,7 @@ namespace linweb {
             RendererState::program_color_u_size = glGetUniformLocation(RendererState::program_color, "uSize");
             RendererState::program_color_u_radius = glGetUniformLocation(RendererState::program_color, "uRadius");
             RendererState::program_color_u_blur = glGetUniformLocation(RendererState::program_color, "uBlur");
+            RendererState::program_color_u_shadow = glGetUniformLocation(RendererState::program_color, "uShadow");
             RendererState::program_color_u_invert = glGetUniformLocation(RendererState::program_color, "uInvert");
             RendererState::program_color_u_grad_type = glGetUniformLocation(RendererState::program_color, "uGradType");
             RendererState::program_color_u_grad_c1 = glGetUniformLocation(RendererState::program_color, "uGradC1");

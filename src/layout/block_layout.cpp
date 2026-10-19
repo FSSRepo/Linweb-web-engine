@@ -21,11 +21,11 @@ namespace linweb
     }
 
     /**
-     * @brief Colapsa dos margenes verticales segun las reglas de CSS.
+     * @brief Collapses two vertical margins according to CSS rules.
      *
-     * @param a Primer margen.
-     * @param b Segundo margen.
-     * @return float El margen colapsado.
+     * @param a First margin.
+     * @param b Second margin.
+     * @return float The collapsed margin.
      */
     float LayoutBox::collapse_margins(float a, float b)
     {
@@ -37,10 +37,10 @@ namespace linweb
     }
 
     /**
-     * @brief Aplica la alineacion de texto (izq, centro, der) a una linea de elementos.
+     * @brief Applies text alignment (left, center, right) to a line of elements.
      *
-     * @param line Vector de cajas que forman la linea.
-     * @param line_width Ancho total ocupado por los elementos de la linea.
+     * @param line Vector of boxes that make up the line.
+     * @param line_width Total width occupied by the elements of the line.
      */
     void LayoutBox::apply_line_alignment(const std::vector<std::shared_ptr<LayoutBox>> &line, float line_width)
     {
@@ -74,19 +74,19 @@ namespace linweb
     }
 
     /**
-     * @brief Realiza el diseño de un hijo de tipo bloque.
+     * @brief Lays out a block-type child.
      *
-     * @param child El hijo a posicionar.
-     * @param current_x_offset Desplazamiento X actual.
-     * @param current_y_offset Desplazamiento Y actual.
-     * @param max_line_height Altura de linea para resetear tras un bloque.
-     * @param max_x_offset Ancho maximo alcanzado.
-     * @param current_line Linea actual para alinear antes del bloque.
-     * @param has_prev_block Indica si hubo un bloque previo para colapsar margenes.
-     * @param pending_prev_block_bottom_margin Margen inferior del bloque anterior.
-     * @param has_any_flow_content Indica si hay contenido previo en el flujo.
-     * @param parent_can_collapse_top Indica si el padre puede colapsar margen superior.
-     * @param parent_can_collapse_bottom Indica si el padre puede colapsar margen inferior.
+     * @param child The child to position.
+     * @param current_x_offset Current X offset.
+     * @param current_y_offset Current Y offset.
+     * @param max_line_height Line height to reset after a block.
+     * @param max_x_offset Maximum width reached.
+     * @param current_line Current line to align before the block.
+     * @param has_prev_block Indicates whether there was a previous block to collapse margins with.
+     * @param pending_prev_block_bottom_margin Bottom margin of the previous block.
+     * @param has_any_flow_content Indicates whether there is previous content in the flow.
+     * @param parent_can_collapse_top Indicates whether the parent can collapse the top margin.
+     * @param parent_can_collapse_bottom Indicates whether the parent can collapse the bottom margin.
      */
     void LayoutBox::layout_block_child(Dimensions container_dimensions, const std::shared_ptr<LayoutBox> &child, float &current_x_offset, float &current_y_offset, float &max_line_height, float &max_x_offset, std::vector<std::shared_ptr<LayoutBox>> &current_line, bool &has_prev_block, float &pending_prev_block_bottom_margin, bool &has_any_flow_content, bool parent_can_collapse_top, bool parent_can_collapse_bottom)
     {
@@ -142,10 +142,10 @@ namespace linweb
     }
 
     /**
-     * @brief Gestiona el diseño de flujo normal (bloque e inline).
+     * @brief Manages the normal flow layout (block and inline).
      *
-     * @param container_dimensions Dimensiones del contenedor.
-     * @param normal_flow_children Hijos en el flujo normal.
+     * @param container_dimensions Container dimensions.
+     * @param normal_flow_children Children in the normal flow.
      */
     void LayoutBox::layout_block(Dimensions container_dimensions, const std::vector<std::shared_ptr<LayoutBox>> &normal_flow_children)
     {

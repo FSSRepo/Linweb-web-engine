@@ -56,7 +56,7 @@ public:
     static void render(const std::shared_ptr<LayoutBox>& root);
     static void set_debug_mode(DebugType type);
     static void set_debug_box(const std::shared_ptr<LayoutBox>& box);
-    static void draw_rect(float x, float y, float width, float height, float r, float g, float b, float a, float radius = 0.0f, float blur = 0.0f, float invert = 0.0f, const Gradient& gradient = Gradient(), float border_width = 0.0f);
+    static void draw_rect(float x, float y, float width, float height, float r, float g, float b, float a, float radius = 0.0f, float blur = 0.0f, float invert = 0.0f, const Gradient& gradient = Gradient(), float border_width = 0.0f, bool is_shadow = false);
     static void draw_image(GLuint texture_id, float x, float y, float width, float height, float radius = 0.0f,
                            float shadow_r = 0.0f, float shadow_g = 0.0f, float shadow_b = 0.0f, float shadow_a = 0.0f,
                            float shadow_offset_x = 0.0f, float shadow_offset_y = 0.0f, float shadow_blur = 0.0f,

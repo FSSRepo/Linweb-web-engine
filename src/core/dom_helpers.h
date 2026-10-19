@@ -6,31 +6,31 @@
 
 namespace linweb {
 
-/** Cuenta todos los nodos en el subárbol de forma recursiva */
+/** Counts all nodes in the subtree recursively */
 size_t count_dom_nodes(const std::shared_ptr<Node>& node);
 
-/** Busca el primer nodo elemento con el id especificado */
+/** Finds the first element node with the specified id */
 std::shared_ptr<Node> find_node_by_id(const std::shared_ptr<Node>& node, const std::string& id);
 
-/** Busca todos los nodos elemento con la etiqueta especificada */
+/** Finds all element nodes with the specified tag */
 std::vector<std::shared_ptr<ElementNode>> find_nodes_by_tag(const std::shared_ptr<Node>& node, const std::string& tag_name);
 
-/** Busca todos los nodos elemento que tengan la clase especificada */
+/** Finds all element nodes with the specified class */
 std::vector<std::shared_ptr<ElementNode>> find_nodes_by_class(const std::shared_ptr<Node>& node, const std::string& class_name);
 
-/** Extrae todo el contenido de texto concatenado recursivamente */
+/** Extracts all the text content concatenated recursively */
 std::string get_text_content(const std::shared_ptr<Node>& node);
 
-/** Serializa los hijos del nodo a una cadena HTML */
+/** Serializes the node's children to an HTML string */
 std::string get_inner_html(const std::shared_ptr<Node>& node);
 
-/** Parsea HTML y reemplaza los hijos del nodo con el resultado */
+/** Parses HTML and replaces the node's children with the result */
 void set_inner_html(const std::shared_ptr<Node>& node, const std::string& html);
 
-/** Filtra y devuelve solo los hijos que son elementos */
+/** Filters and returns only the children that are elements */
 std::vector<std::shared_ptr<Node>> get_element_children(const std::shared_ptr<Node>& node);
 
-/** Filtra y devuelve solo los hijos que son nodos de texto */
+/** Filters and returns only the children that are text nodes */
 std::vector<std::shared_ptr<Node>> get_text_children(const std::shared_ptr<Node>& node);
 
 } // namespace linweb

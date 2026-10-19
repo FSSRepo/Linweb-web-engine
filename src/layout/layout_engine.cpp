@@ -8,11 +8,11 @@ namespace linweb
 {
 
     /**
-     * @brief Parsea un valor de cadena a pixeles, manejando unidades como %, px, rem y em.
+     * @brief Parses a string value to pixels, handling units such as %, px, rem and em.
      *
-     * @param s La cadena a parsear.
-     * @param parent_size El tamano del contenedor padre para calculos porcentuales o em.
-     * @return float El valor convertido a pixeles.
+     * @param s The string to parse.
+     * @param parent_size The size of the parent container for percentage or em calculations.
+     * @return float The value converted to pixels.
      */
     float LayoutEngine::parse_px(const std::string &s, float parent_size)
     {
@@ -49,9 +49,9 @@ namespace linweb
     }
 
     /**
-     * @brief Constructor de LayoutBox. Determina el tipo de caja y la posicion inicial basada en el estilo.
+     * @brief LayoutBox constructor. Determines the box type and initial position based on the style.
      *
-     * @param node El nodo con estilo que se va a posicionar.
+     * @param node The styled node to position.
      */
     LayoutBox::LayoutBox(std::shared_ptr<StyledNode> node)
         : styled_node(std::move(node)), box_type(BoxType::Block), last_line_width(0), total_y_offset(0), scroll_y(0), z_index(0)
@@ -103,9 +103,9 @@ namespace linweb
     }
 
     /**
-     * @brief Realiza el diseño de los hijos, delegando según el tipo de caja (Grid, Flex, Block).
+     * @brief Lays out the children, delegating according to the box type (Grid, Flex, Block).
      *
-     * @param container_dimensions Dimensiones del contenedor.
+     * @param container_dimensions Container dimensions.
      */
     void LayoutBox::layout_children(Dimensions container_dimensions)
     {
