@@ -1,8 +1,8 @@
 body {
     margin: 0;
     padding: 0;
-    /* Fondo base de ps3.html */
-    background: linear-gradient(180deg, #79b35a 0%, #5c8f3e 100%);
+    /* Fondo animado XMB de PS3 (shader nativo) */
+    background: ps3-xmb;
     background-attachment: fixed;
     color: #ffffff;
     font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;

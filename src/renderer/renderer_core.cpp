@@ -82,6 +82,13 @@ namespace linweb {
     GLint RendererState::program_image_a_pos = -1;
     GLint RendererState::program_image_a_uv = -1;
 
+    GLuint RendererState::program_bg = 0;
+    GLint RendererState::program_bg_u_proj = -1;
+    GLint RendererState::program_bg_u_model = -1;
+    GLint RendererState::program_bg_u_time = -1;
+    GLint RendererState::program_bg_a_pos = -1;
+    GLint RendererState::program_bg_a_uv = -1;
+
     void RendererState::update_proj()
     {
         float l = 0.0f;
@@ -182,6 +189,23 @@ namespace linweb {
         if (fs_image)
             glDeleteShader(fs_image);
 
+        GLuint vs_bg = compile_shader(GL_VERTEX_SHADER, vs_image_src);
+        GLuint fs_bg = compile_shader(GL_FRAGMENT_SHADER, fs_xmb_src);
+        if (vs_bg && fs_bg)
+            RendererState::program_bg = link_program(vs_bg, fs_bg);
+        if (RendererState::program_bg)
+        {
+            RendererState::program_bg_u_proj = glGetUniformLocation(RendererState::program_bg, "uProj");
+            RendererState::program_bg_u_model = glGetUniformLocation(RendererState::program_bg, "uModel");
+            RendererState::program_bg_u_time = glGetUniformLocation(RendererState::program_bg, "uTime");
+            RendererState::program_bg_a_pos = glGetAttribLocation(RendererState::program_bg, "aPos");
+            RendererState::program_bg_a_uv = glGetAttribLocation(RendererState::program_bg, "aUV");
+        }
+        if (vs_bg)
+            glDeleteShader(vs_bg);
+        if (fs_bg)
+            glDeleteShader(fs_bg);
+
         glGenBuffers(1, &RendererState::vbo_color);
         glGenBuffers(1, &RendererState::vbo_text);
 
@@ -217,6 +241,11 @@ namespace linweb {
             glUniformMatrix4fv(RendererState::program_image_u_proj, 1, GL_FALSE, RendererState::proj.data());
             if (RendererState::program_image_u_tex >= 0)
                 glUniform1i(RendererState::program_image_u_tex, 0);
+        }
+        if (RendererState::program_bg && RendererState::program_bg_u_proj >= 0)
+        {
+            glUseProgram(RendererState::program_bg);
+            glUniformMatrix4fv(RendererState::program_bg_u_proj, 1, GL_FALSE, RendererState::proj.data());
         }
         glUseProgram(0);
     }

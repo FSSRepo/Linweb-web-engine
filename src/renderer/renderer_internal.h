@@ -78,6 +78,13 @@ struct RendererState {
     static GLint program_image_a_pos;
     static GLint program_image_a_uv;
 
+    static GLuint program_bg;
+    static GLint program_bg_u_proj;
+    static GLint program_bg_u_model;
+    static GLint program_bg_u_time;
+    static GLint program_bg_a_pos;
+    static GLint program_bg_a_uv;
+
     static void update_proj();
 };
 

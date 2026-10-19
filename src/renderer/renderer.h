@@ -65,6 +65,7 @@ public:
 
 private:
     static void render_box(const std::shared_ptr<LayoutBox>& box, float inherited_opacity = 1.0f, const Filter& inherited_filter = Filter());
+    static void draw_ps3_background(float x, float y, float width, float height);
 
     static DebugType debug_type;
     static std::shared_ptr<LayoutBox> debug_box;

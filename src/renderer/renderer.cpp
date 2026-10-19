@@ -10,6 +10,11 @@
 
 namespace linweb {
 
+    static bool is_shader_background(const std::string &value)
+    {
+        return trim(value) == "ps3-xmb";
+    }
+
     void parse_color(const std::string &value, float &r, float &g, float &b, float &a)
     {
         Color c = parse_color_str(value);
@@ -422,6 +427,13 @@ namespace linweb {
                 html_bg = root->styled_node->value("background");
             bool html_has_bg = !html_bg.empty() && html_bg != "transparent";
 
+            if (is_shader_background(html_bg))
+            {
+                glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+                glClear(GL_COLOR_BUFFER_BIT);
+                has_canvas_bg = true;
+            }
+
             if (!html_has_bg)
             {
                 for (const auto &child : root->children)
@@ -435,24 +447,33 @@ namespace linweb {
                             body_bg = child->styled_node->value("background");
                         if (!body_bg.empty() && body_bg != "transparent")
                         {
-                            Gradient body_grad = parse_gradient(body_bg);
-                            if (body_grad.type != GradientType::None)
+                            if (is_shader_background(body_bg))
                             {
-                                // Body has a gradient; let render_box draw it.
-                                // Clear with a neutral color so areas outside the body
-                                // don't show garbage.
-                                glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
+                                glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
                                 glClear(GL_COLOR_BUFFER_BIT);
                                 has_canvas_bg = true;
                             }
                             else
                             {
-                                Color c = parse_color_str(body_bg);
-                                canvas_r = c.r; canvas_g = c.g; canvas_b = c.b; canvas_a = c.a;
-                                has_canvas_bg = true;
-                                // Clear with body's background color
-                                glClearColor(canvas_r, canvas_g, canvas_b, canvas_a);
-                                glClear(GL_COLOR_BUFFER_BIT);
+                                Gradient body_grad = parse_gradient(body_bg);
+                                if (body_grad.type != GradientType::None)
+                                {
+                                    // Body has a gradient; let render_box draw it.
+                                    // Clear with a neutral color so areas outside the body
+                                    // don't show garbage.
+                                    glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
+                                    glClear(GL_COLOR_BUFFER_BIT);
+                                    has_canvas_bg = true;
+                                }
+                                else
+                                {
+                                    Color c = parse_color_str(body_bg);
+                                    canvas_r = c.r; canvas_g = c.g; canvas_b = c.b; canvas_a = c.a;
+                                    has_canvas_bg = true;
+                                    // Clear with body's background color
+                                    glClearColor(canvas_r, canvas_g, canvas_b, canvas_a);
+                                    glClear(GL_COLOR_BUFFER_BIT);
+                                }
                             }
                         }
                         break;
@@ -572,6 +593,7 @@ namespace linweb {
             float r = 0.0f, g = 0.0f, b = 0.0f, a = 0.0f;
             std::string bg_color_val = box->styled_node->value("background-color");
             std::string bg_val = box->styled_node->value("background");
+            bool shader_background = is_shader_background(bg_val) || is_shader_background(bg_color_val);
             
             if (!bg_color_val.empty()) {
                 parse_color(bg_color_val, r, g, b, a);
@@ -662,6 +684,11 @@ namespace linweb {
                     float sh = full_bg_h + combined_filter.dropShadow.spread * 2.0f;
 
                     draw_rect(sx, sy, sw, sh, combined_filter.dropShadow.r, combined_filter.dropShadow.g, combined_filter.dropShadow.b, combined_filter.dropShadow.a * total_opacity, radius + combined_filter.dropShadow.spread, combined_filter.dropShadow.blur + combined_filter.blur, combined_filter.invert, Gradient(), 0.0f, true);
+                }
+
+                if (shader_background)
+                {
+                    draw_ps3_background(bg_x, bg_y, bg_w, bg_h);
                 }
 
                 bool has_border = border_top > 0 || border_bottom > 0 || border_left > 0 || border_right > 0;

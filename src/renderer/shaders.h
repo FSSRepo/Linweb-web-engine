@@ -168,6 +168,38 @@ const char *fs_image_src =
     "  }\n"
     "}\n";
 
+// PS3 XMB animated background (port of the Shadertoy xmb.glsl shader)
+const char *fs_xmb_src =
+    "precision mediump float;\n"
+    "uniform float uTime;\n"
+    "varying vec2 vUV;\n"
+    "const vec3 xmb_top = vec3(0.0);\n"
+    "const vec3 xmb_bottom = vec3(0.094, 0.141, 0.424);\n"
+    "vec3 xmb_sine(vec2 uv, float speed, float frequency, float amplitude,\n"
+    "              float shift, float offset, vec3 color,\n"
+    "              float width, float exponent, bool dir) {\n"
+    "  float angle = uTime * speed * frequency * -1.0 + (shift + uv.x) * 2.0;\n"
+    "  float y = sin(angle) * amplitude + offset;\n"
+    "  float dsqr = distance(y, uv.y);\n"
+    "  float diffY = y - uv.y;\n"
+    "  if (dir && diffY > 0.0) dsqr *= 4.0;\n"
+    "  else if (!dir && diffY < 0.0) dsqr *= 4.0;\n"
+    "  float scale = pow(1.0 - smoothstep(0.0, width * 1.5, dsqr), exponent);\n"
+    "  return min(color * scale, color);\n"
+    "}\n"
+    "void main() {\n"
+    "  vec2 uv = vec2(vUV.x, 1.0 - vUV.y);\n"
+    "  vec3 color = mix(xmb_top, xmb_bottom, uv.x * uv.y * 1.1);\n"
+    "  color += xmb_sine(uv, 0.2, 0.20, 0.20, 0.0, 0.5, vec3(0.3), 0.1, 15.0, false);\n"
+    "  color += xmb_sine(uv, 0.4, 0.40, 0.15, 0.0, 0.5, vec3(0.3), 0.1, 17.0, false);\n"
+    "  color += xmb_sine(uv, 0.3, 0.60, 0.15, 0.0, 0.5, vec3(0.3), 0.05, 23.0, false);\n"
+    "  color += xmb_sine(uv, 0.1, 0.26, 0.07, 0.0, 0.3, vec3(0.3), 0.1, 17.0, true);\n"
+    "  color += xmb_sine(uv, 0.3, 0.36, 0.07, 0.0, 0.3, vec3(0.3), 0.1, 17.0, true);\n"
+    "  color += xmb_sine(uv, 0.5, 0.46, 0.07, 0.0, 0.3, vec3(0.3), 0.05, 23.0, true);\n"
+    "  color += xmb_sine(uv, 0.2, 0.58, 0.05, 0.0, 0.3, vec3(0.3, 0.3, 0.3), 0.2, 15.0, true);\n"
+    "  gl_FragColor = vec4(color, 1.0);\n"
+    "}\n";
+
 #else // Desktop OpenGL
 
 const char *vs_color_src =
@@ -335,6 +367,38 @@ const char *fs_image_src =
     "  } else {\n"
     "    gl_FragColor = finalColor;\n"
     "  }\n"
+    "}\n";
+
+// PS3 XMB animated background (port of the Shadertoy xmb.glsl shader)
+const char *fs_xmb_src =
+    "#version 110\n"
+    "uniform float uTime;\n"
+    "varying vec2 vUV;\n"
+    "const vec3 xmb_top = vec3(0.0);\n"
+    "const vec3 xmb_bottom = vec3(0.094, 0.141, 0.424);\n"
+    "vec3 xmb_sine(vec2 uv, float speed, float frequency, float amplitude,\n"
+    "              float shift, float offset, vec3 color,\n"
+    "              float width, float exponent, bool dir) {\n"
+    "  float angle = uTime * speed * frequency * -1.0 + (shift + uv.x) * 2.0;\n"
+    "  float y = sin(angle) * amplitude + offset;\n"
+    "  float dsqr = distance(y, uv.y);\n"
+    "  float diffY = y - uv.y;\n"
+    "  if (dir && diffY > 0.0) dsqr *= 4.0;\n"
+    "  else if (!dir && diffY < 0.0) dsqr *= 4.0;\n"
+    "  float scale = pow(1.0 - smoothstep(0.0, width * 1.5, dsqr), exponent);\n"
+    "  return min(color * scale, color);\n"
+    "}\n"
+    "void main() {\n"
+    "  vec2 uv = vec2(vUV.x, 1.0 - vUV.y);\n"
+    "  vec3 color = mix(xmb_top, xmb_bottom, uv.x * uv.y * 1.1);\n"
+    "  color += xmb_sine(uv, 0.2, 0.20, 0.20, 0.0, 0.5, vec3(0.3), 0.1, 15.0, false);\n"
+    "  color += xmb_sine(uv, 0.4, 0.40, 0.15, 0.0, 0.5, vec3(0.3), 0.1, 17.0, false);\n"
+    "  color += xmb_sine(uv, 0.3, 0.60, 0.15, 0.0, 0.5, vec3(0.3), 0.05, 23.0, false);\n"
+    "  color += xmb_sine(uv, 0.1, 0.26, 0.07, 0.0, 0.3, vec3(0.3), 0.1, 17.0, true);\n"
+    "  color += xmb_sine(uv, 0.3, 0.36, 0.07, 0.0, 0.3, vec3(0.3), 0.1, 17.0, true);\n"
+    "  color += xmb_sine(uv, 0.5, 0.46, 0.07, 0.0, 0.3, vec3(0.3), 0.05, 23.0, true);\n"
+    "  color += xmb_sine(uv, 0.2, 0.58, 0.05, 0.0, 0.3, vec3(0.3, 0.3, 0.3), 0.2, 15.0, true);\n"
+    "  gl_FragColor = vec4(color, 1.0);\n"
     "}\n";
 
 #endif // WESTON_PLATFORM
