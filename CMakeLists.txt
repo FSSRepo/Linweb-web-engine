@@ -5,6 +5,40 @@ project(LinWebEngine C CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+option(LINWEB_BUILD_ENGINE "Build the OpenGL renderer in addition to the downloader" ON)
+
+# Portable HTTP/TLS library. net_sockets.c uses Winsock on Windows; no POSIX
+# wrapper from node-lite is required. Keep the CA bundle inside the executable.
+file(GLOB LINWEB_MBEDTLS_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/external/mbedtls/library/*.c")
+add_library(linweb_mbedtls STATIC ${LINWEB_MBEDTLS_SOURCES})
+target_include_directories(linweb_mbedtls PUBLIC external/mbedtls/include PRIVATE external/mbedtls/library)
+if(WIN32)
+    target_compile_definitions(linweb_mbedtls PRIVATE _WIN32_WINNT=0x0601 _CRT_SECURE_NO_WARNINGS)
+    target_link_libraries(linweb_mbedtls PUBLIC ws2_32 bcrypt)
+endif()
+
+set(LINWEB_CA_FILE "${CMAKE_CURRENT_SOURCE_DIR}/external/ca/cacert.pem")
+file(READ "${LINWEB_CA_FILE}" LINWEB_CA_BUNDLE)
+string(REGEX MATCHALL "-----BEGIN CERTIFICATE-----[^-]*-----END CERTIFICATE-----" LINWEB_CA_CERTS "${LINWEB_CA_BUNDLE}")
+string(REPLACE ";" "\n" LINWEB_CA_PEM "${LINWEB_CA_CERTS}")
+file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/linweb-ca.pem" "${LINWEB_CA_PEM}\n")
+file(READ "${CMAKE_CURRENT_BINARY_DIR}/linweb-ca.pem" LINWEB_CA_HEX HEX)
+string(REGEX REPLACE "([0-9a-f][0-9a-f])" "0x\\1," LINWEB_CA_ARRAY "${LINWEB_CA_HEX}")
+file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/linweb_ca.c"
+    "const unsigned char linweb_ca_pem[] = {${LINWEB_CA_ARRAY}0x00};\nconst unsigned long linweb_ca_pem_len = sizeof(linweb_ca_pem) - 1;\n")
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${LINWEB_CA_FILE}")
+
+add_library(linweb_network STATIC src/network/http_client.cpp src/network/page_downloader.cpp
+    "${CMAKE_CURRENT_BINARY_DIR}/linweb_ca.c")
+target_include_directories(linweb_network PUBLIC src)
+target_link_libraries(linweb_network PUBLIC linweb_mbedtls)
+add_executable(linweb-download src/network/download_main.cpp)
+target_link_libraries(linweb-download PRIVATE linweb_network)
+
+if(NOT LINWEB_BUILD_ENGINE)
+    return()
+endif()
+
 # Platform selection
 option(WESTON_PLATFORM "Build with Wayland/Weston support instead of GLFW" OFF)
 option(XORG_PLATFORM "Build with X11/EGL support instead of GLFW" OFF)
@@ -47,11 +81,13 @@ set(LINWEB_SOURCES
     src/layout/inline_layout.cpp
     src/layout/flex_layout.cpp
     src/layout/grid_layout.cpp
+    src/layout/table_layout.cpp
     src/layout/positioned_layout.cpp
     src/renderer/renderer_core.cpp
     src/renderer/renderer.cpp
     src/renderer/primitive_renderer.cpp
     src/renderer/image_renderer.cpp
+    src/renderer/background_renderer.cpp
     src/renderer/text_renderer.cpp
     src/renderer/svg_renderer.cpp
     src/renderer/shader_manager.cpp
@@ -68,14 +104,21 @@ set(LINWEB_SOURCES
     src/scripting/timer_bindings.cpp
     src/scripting/console_bindings.cpp
     src/utils/file_utils.cpp
+    src/utils/log.cpp
+    src/utils/page_resources.cpp
     src/utils/dom_traversal.cpp
     src/utils/layout_traversal.cpp
     src/utils/scroll_manager.cpp
     src/platform/input_handler.cpp
     src/platform/scroll_handler.cpp
     src/platform/keyboard_handler.cpp
+    src/platform/key_event.cpp
+    src/forms/form_controls.cpp
+    src/forms/form_bindings.cpp
+    src/renderer/form_renderer.cpp
     src/platform/mouse_handler.cpp
     src/debug/debug_visualizer.cpp
+    src/debug/frame_capture.cpp
     src/debug/node_tree_view.cpp
 )
 
@@ -93,6 +136,14 @@ endif()
 
 # Create the executable
 add_executable(linweb ${LINWEB_SOURCES})
+target_link_libraries(linweb PRIVATE linweb_network)   # http(s) URLs are downloaded before they are loaded
+add_custom_command(TARGET linweb POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${CMAKE_CURRENT_SOURCE_DIR}/assets/fonts/arial.ttf"
+        "${CMAKE_CURRENT_SOURCE_DIR}/assets/fonts/arialbd.ttf"
+        "${CMAKE_CURRENT_SOURCE_DIR}/assets/fonts/monospace.ttf"
+        "$<TARGET_FILE_DIR:linweb>"
+    COMMENT "Copying renderer fonts")
 
 # Include directories
 target_include_directories(linweb PRIVATE
@@ -110,7 +161,7 @@ endif()
 
 # Link libraries
 if(WESTON_PLATFORM)
-    target_link_libraries(linweb PRIVATE GLESv2 wayland-client wayland-egl EGL qjs)
+    target_link_libraries(linweb PRIVATE GLESv2 wayland-client wayland-egl EGL xkbcommon qjs)
     target_compile_definitions(linweb PRIVATE WESTON_PLATFORM)
 elseif(XORG_PLATFORM)
     target_link_libraries(linweb PRIVATE OpenGL::GL X11 EGL qjs)
@@ -130,3 +181,4 @@ target_compile_definitions(linweb PRIVATE
 if(UNIX)
     target_link_libraries(linweb PRIVATE m)
 endif()
+

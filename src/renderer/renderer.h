@@ -18,7 +18,7 @@ struct Gradient {
     float r4 = 0, g4 = 0, b4 = 0, a4 = 0;
     float s1 = 0.0f, s2 = 1.0f, s3 = 0.0f, s4 = 0.0f;
     int color_count = 2;
-    float angle = 0; // For linear: degrees. For radial: not used yet.
+    float angle = 180; // CSS linear gradients default to top-to-bottom.
 };
 
 struct BoxShadow {
@@ -60,7 +60,7 @@ public:
     static void draw_image(GLuint texture_id, float x, float y, float width, float height, float radius = 0.0f,
                            float shadow_r = 0.0f, float shadow_g = 0.0f, float shadow_b = 0.0f, float shadow_a = 0.0f,
                            float shadow_offset_x = 0.0f, float shadow_offset_y = 0.0f, float shadow_blur = 0.0f,
-                           int tex_width = 0, int tex_height = 0);
+                           int tex_width = 0, int tex_height = 0, float opacity = 1.0f);
     static void draw_text(const std::string& text, float x, float y, float font_size = 16.0f, float r = 0.0f, float g = 0.0f, float b = 0.0f, float a = 1.0f, bool is_bold = false, float blur = 0.0f, float invert = 0.0f, bool is_monospace = false);
 
 private:

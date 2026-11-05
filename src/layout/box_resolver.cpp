@@ -3,6 +3,8 @@
 #include "../renderer/texture_manager.h"
 #include "../renderer/svg_loader.h"
 #include "style/colors.h"
+#include "forms/form_controls.h"
+#include "utils/control_label.h"
 #include <algorithm>
 #include <sstream>
 #include <vector>
@@ -11,6 +13,51 @@
 
 namespace linweb
 {
+    namespace
+    {
+        // Default size of the content box of a form control (a CSS width or height wins over it).
+        bool control_intrinsic_size(const Node &node, float font_size, float &width, float &height)
+        {
+            if (is_button_input(node)) {
+                width = Renderer::measure_text(button_input_label(node), font_size);
+                height = Renderer::get_line_height(font_size);
+                return true;
+            }
+            switch (forms::kind_of(node))
+            {
+            case forms::Kind::Text:
+            {
+                long chars = std::strtol(node.data.attributes.count("size") ? node.data.attributes.at("size").c_str() : "20", nullptr, 10);
+                if (chars <= 0) chars = 20;
+                width = static_cast<float>(chars) * Renderer::measure_text("0", font_size);
+                height = Renderer::get_line_height(font_size);
+                return true;
+            }
+            case forms::Kind::Range:
+                width = 129.0f;
+                height = 16.0f;
+                return true;
+            case forms::Kind::Progress:
+                width = 160.0f;
+                height = 16.0f;
+                return true;
+            case forms::Kind::Select:
+            {
+                // as wide as its longest option, plus the 6px inset the list draws its text with on each side
+                width = 0.0f;
+                for (const auto& option : forms::options_of(node)) {
+                    width = std::max(width, Renderer::measure_text(forms::option_text(*option), font_size));
+                }
+                if (width > 0.0f) width += 12.0f;
+                height = Renderer::get_line_height(font_size);
+                return true;
+            }
+            case forms::Kind::None:
+                break;
+            }
+            return false;
+        }
+    } // namespace
 
     /**
      * @brief Resolves the initial dimensions (margins, paddings, borders, width and height).
@@ -34,9 +81,10 @@ namespace linweb
             font_size = 16.0f;
 
         std::string line_height_str = styled_node->value("line-height");
-        if (!line_height_str.empty())
+        if (!line_height_str.empty() && line_height_str != "normal")
         {
             this->line_height = LayoutEngine::parse_px(line_height_str, font_size);
+            if (line_height_str.find_first_not_of("0123456789. ") == std::string::npos) this->line_height *= font_size;
         }
         else
         {
@@ -168,7 +216,9 @@ namespace linweb
                     values.push_back(-12345.0f);
                 else
                 {
-                    float ref = (prop == "margin" || prop == "padding") ? parent_width : font_size;
+                    // a percentage is of the containing width, but an em is of the element's own font size
+                    bool is_em = p.size() > 2 && p.compare(p.size() - 2, 2, "em") == 0;
+                    float ref = ((prop == "margin" || prop == "padding") && !is_em) ? parent_width : font_size;
                     values.push_back(LayoutEngine::parse_px(p, ref));
                 }
             }
@@ -199,6 +249,21 @@ namespace linweb
 
         resolve_shorthand("margin", dimensions.margin, true);
         resolve_shorthand("padding", dimensions.padding, false);
+
+        // a side set by its own longhand wins over the shorthand (margin: 2px from a UA default must not undo margin-left)
+        auto refine = [&](const std::string &prop, float &field, float parent_val)
+        {
+            if (!styled_node->value(prop).empty())
+                field = resolve_prop(prop, parent_val);
+        };
+        refine("margin-left", dimensions.margin.left, parent_width);
+        refine("margin-right", dimensions.margin.right, parent_width);
+        refine("margin-top", dimensions.margin.top, parent_width);
+        refine("margin-bottom", dimensions.margin.bottom, parent_width);
+        refine("padding-left", dimensions.padding.left, parent_width);
+        refine("padding-right", dimensions.padding.right, parent_width);
+        refine("padding-top", dimensions.padding.top, parent_width);
+        refine("padding-bottom", dimensions.padding.bottom, parent_width);
 
         std::string border_width = styled_node->value("border-width");
         if (!border_width.empty())
@@ -313,6 +378,41 @@ namespace linweb
         std::string font_family = styled_node->value("font-family");
         bool is_monospace = (font_family == "monospace");
 
+        // A text node that opens or closes a block drops the white space at that edge, as a line does in CSS.
+        // Its leading part is kept out of the width, and drawing moves the text left by it.
+        text_leading_trim = 0;
+        auto parent_box = parent.lock();
+        auto dom_node = styled_node->node;
+        auto dom_parent = dom_node->parent.lock();
+        bool is_text = std::dynamic_pointer_cast<TextNode>(dom_node) != nullptr;
+        if (is_text && parent_box && parent_box->box_type != BoxType::Inline && dom_parent) {
+            auto blank = [](const std::shared_ptr<Node>& n) {
+                auto t = std::dynamic_pointer_cast<TextNode>(n);
+                return t && t->data.find_first_not_of(" \t\n\r\f") == std::string::npos;
+            };
+            const auto& siblings = dom_parent->children;
+            bool at_start = true, at_end = true;
+            for (const auto& sibling : siblings) {
+                if (sibling == dom_node) break;
+                if (!blank(sibling)) at_start = false;
+            }
+            for (auto it = siblings.rbegin(); it != siblings.rend() && *it != dom_node; ++it) {
+                if (!blank(*it)) at_end = false;
+            }
+            size_t first = text_data.find_first_not_of(" \t\n\r\f");
+            size_t last = text_data.find_last_not_of(" \t\n\r\f");
+            if (first == std::string::npos) {
+                // a blank node between two boxes is a real space; only at a block edge does it disappear
+                if (at_start || at_end) text_data.clear();
+            } else {
+                if (at_end) text_data.erase(last + 1);
+                if (at_start && first > 0) {
+                    text_leading_trim = Renderer::measure_text(text_data.substr(0, first), font_size, is_bold, is_monospace);
+                    text_data.erase(0, first);
+                }
+            }
+        }
+
         dimensions.content.width = Renderer::measure_text(text_data, font_size, is_bold, is_monospace);
         dimensions.content.height = line_height;
     }
@@ -330,7 +430,8 @@ namespace linweb
         bool is_border_box = (box_sizing == "border-box");
 
         std::string w_str = styled_node->value("width");
-        if (w_str.empty() && styled_node->node->tag_name == "img") {
+        if (w_str == "auto") w_str.clear();
+        if (w_str.empty() && (styled_node->node->tag_name == "img" || styled_node->node->tag_name == "svg")) {
             auto it = styled_node->node->data.attributes.find("width");
             if (it != styled_node->node->data.attributes.end()) {
                 w_str = it->second;
@@ -347,6 +448,18 @@ namespace linweb
                       dimensions.border.left + dimensions.border.right);
             }
             dimensions.content.width = std::max(0.0f, w);
+        }
+        else if ((styled_node->value("position") == "absolute" || styled_node->value("position") == "fixed") &&
+                 !styled_node->value("left").empty() && !styled_node->value("right").empty())
+        {
+            // An absolutely positioned box with auto width and both left and right set fills what those leave
+            float l = LayoutEngine::parse_px(styled_node->value("left"), parent_width);
+            float r = LayoutEngine::parse_px(styled_node->value("right"), parent_width);
+            float ml = (dimensions.margin.left == -12345.0f) ? 0 : dimensions.margin.left;
+            float mr = (dimensions.margin.right == -12345.0f) ? 0 : dimensions.margin.right;
+            dimensions.content.width = std::max(0.0f, parent_width - l - r - ml - mr -
+                                                          dimensions.padding.left - dimensions.padding.right -
+                                                          dimensions.border.left - dimensions.border.right);
         }
         else if ((box_type == BoxType::Block || box_type == BoxType::Grid || box_type == BoxType::Flex) &&
                  styled_node->value("position") != "absolute" &&
@@ -388,10 +501,26 @@ namespace linweb
             dimensions.content.width = 0;
         }
 
+        // max-width caps the width; min-width is applied after it, so it wins when the two conflict (as in CSS)
+        std::string max_w_str = styled_node->value("max-width");
+        if (!max_w_str.empty() && max_w_str != "none")
+        {
+            float max_w = LayoutEngine::parse_px(max_w_str, max_w_str.find('%') != std::string::npos ? parent_width : font_size);
+            if (is_border_box)
+            {
+                max_w -= (dimensions.padding.left + dimensions.padding.right +
+                          dimensions.border.left + dimensions.border.right);
+            }
+            if (dimensions.content.width > max_w)
+            {
+                dimensions.content.width = std::max(0.0f, max_w);
+            }
+        }
+
         std::string min_w_str = styled_node->value("min-width");
         if (!min_w_str.empty())
         {
-            float min_w = LayoutEngine::parse_px(min_w_str, parent_width);
+            float min_w = LayoutEngine::parse_px(min_w_str, min_w_str.find('%') != std::string::npos ? parent_width : font_size);
             if (is_border_box)
             {
                 min_w -= (dimensions.padding.left + dimensions.padding.right +
@@ -403,6 +532,14 @@ namespace linweb
             }
         }
         
+        // A form control without a width gets its default one
+        if (w_str.empty()) {
+            float control_w = 0, control_h = 0;
+            if (control_intrinsic_size(*styled_node->node, font_size, control_w, control_h)) {
+                dimensions.content.width = control_w;
+            }
+        }
+
         // Handle image intrinsic width if not set
         if ((styled_node->node->tag_name == "img" || styled_node->node->tag_name == "svg") && w_str.empty()) {
             std::string src = styled_node->node->data.src();
@@ -410,7 +547,11 @@ namespace linweb
                 std::string content = SvgLoader::reconstruct_svg(styled_node->node);
                 float sw = 0, sh = 0;
                 if (SvgLoader::get_intrinsic_size_from_string(content, sw, sh)) {
-                    dimensions.content.width = sw;
+                    // without a size of its own an svg fills the width its parent has set, or is 300px as in a browser;
+                    // its viewBox only gives the proportions (see the height below)
+                    auto parent_box = parent.lock();
+                    float parent_width = (parent_box && !parent_box->styled_node->value("width").empty()) ? parent_box->dimensions.content.width : 0.0f;
+                    dimensions.content.width = parent_width > 0.001f ? parent_width : 300.0f;
                 }
             } else if (!src.empty()) {
                 if (src.size() > 4 && src.substr(src.size() - 4) == ".svg") {
@@ -450,7 +591,9 @@ namespace linweb
         float parent_height = container_dimensions.content.height;
         std::string w_str = styled_node->value("width");
         std::string h_str = styled_node->value("height");
-        if (h_str.empty() && styled_node->node->tag_name == "img") {
+        if (w_str == "auto") w_str.clear();
+        if (h_str == "auto") h_str.clear();
+        if (h_str.empty() && (styled_node->node->tag_name == "img" || styled_node->node->tag_name == "svg")) {
             auto it = styled_node->node->data.attributes.find("height");
             if (it != styled_node->node->data.attributes.end()) {
                 h_str = it->second;
@@ -478,7 +621,20 @@ namespace linweb
                 // Per CSS spec: percentage height = auto when parent has indefinite height
                 dimensions.content.height = std::max(0.0f, children_height);
             } else {
-                float h = LayoutEngine::parse_px(h_str, parent_height);
+                // A percentage refers to the parent's height. A parent with a px height of its own is not laid out
+                // yet, so its height comes from its style, not from the provisional height passed in.
+                float percent_base = parent_height;
+                if (auto parent_box = parent.lock()) {
+                    std::string parent_h = parent_box->styled_node->value("height");
+                    if (!parent_h.empty() && parent_h != "auto" && parent_h.find('%') == std::string::npos) {
+                        percent_base = LayoutEngine::parse_px(parent_h, parent_height);
+                        if (parent_box->styled_node->value("box-sizing") == "border-box") {
+                            percent_base -= (parent_box->dimensions.padding.top + parent_box->dimensions.padding.bottom +
+                                             parent_box->dimensions.border.top + parent_box->dimensions.border.bottom);
+                        }
+                    }
+                }
+                float h = LayoutEngine::parse_px(h_str, h_str.find('%') != std::string::npos ? percent_base : LayoutEngine::parse_px(styled_node->value("font-size"), 16));
                 if (is_border_box)
                 {
                     h -= (dimensions.padding.top + dimensions.padding.bottom +
@@ -486,6 +642,18 @@ namespace linweb
                 }
                 dimensions.content.height = std::max(0.0f, h);
             }
+        }
+        else if ((styled_node->value("position") == "absolute" || styled_node->value("position") == "fixed") &&
+                 !styled_node->value("top").empty() && !styled_node->value("bottom").empty() && !parent_height_indefinite)
+        {
+            // Auto height with both top and bottom set fills what those leave
+            float t = LayoutEngine::parse_px(styled_node->value("top"), parent_height);
+            float b = LayoutEngine::parse_px(styled_node->value("bottom"), parent_height);
+            float mt = (dimensions.margin.top == -12345.0f) ? 0 : dimensions.margin.top;
+            float mb = (dimensions.margin.bottom == -12345.0f) ? 0 : dimensions.margin.bottom;
+            dimensions.content.height = std::max(0.0f, parent_height - t - b - mt - mb -
+                                                         dimensions.padding.top - dimensions.padding.bottom -
+                                                         dimensions.border.top - dimensions.border.bottom);
         }
         else
         {
@@ -497,7 +665,7 @@ namespace linweb
         {
             bool is_pct = (max_h_str.find('%') != std::string::npos);
             if (!(is_pct && parent_height_indefinite)) {
-                float max_h = LayoutEngine::parse_px(max_h_str, parent_height);
+                float max_h = LayoutEngine::parse_px(max_h_str, is_pct ? parent_height : LayoutEngine::parse_px(styled_node->value("font-size"), 16));
                 if (is_border_box)
                 {
                     max_h -= (dimensions.padding.top + dimensions.padding.bottom +
@@ -515,7 +683,7 @@ namespace linweb
         {
             bool is_pct = (min_h_str.find('%') != std::string::npos);
             if (!(is_pct && parent_height_indefinite)) {
-                float min_h = LayoutEngine::parse_px(min_h_str, parent_height);
+                float min_h = LayoutEngine::parse_px(min_h_str, is_pct ? parent_height : LayoutEngine::parse_px(styled_node->value("font-size"), 16));
                 if (is_border_box)
                 {
                     min_h -= (dimensions.padding.top + dimensions.padding.bottom +
@@ -525,6 +693,15 @@ namespace linweb
                 {
                     dimensions.content.height = std::max(0.0f, min_h);
                 }
+            }
+        }
+
+        // A form control without a height gets its default one
+        if (h_str.empty()) {
+            float control_w = 0, control_h = 0;
+            float control_font = LayoutEngine::parse_px(styled_node->value("font-size"), 16.0f);
+            if (control_intrinsic_size(*styled_node->node, control_font > 0 ? control_font : 16.0f, control_w, control_h)) {
+                dimensions.content.height = control_h;
             }
         }
 
@@ -557,7 +734,8 @@ namespace linweb
                         // Maintain aspect ratio based on set width
                         dimensions.content.height = (dimensions.content.width / intrinsic_w) * intrinsic_h;
                     } else {
-                        dimensions.content.height = intrinsic_h;
+                        // the width is already known: the height keeps the proportions of the intrinsic size
+                        dimensions.content.height = dimensions.content.width * intrinsic_h / intrinsic_w;
                     }
                 } else if (w_str.empty()) {
                     // Maintain aspect ratio based on set height
@@ -569,16 +747,26 @@ namespace linweb
         // Adjust for inline width/height if not specified
         bool is_abs_fixed = styled_node->value("position") == "absolute" || styled_node->value("position") == "fixed";
 
-        bool is_replaced_element = styled_node->node->tag_name == "img";
+        bool is_replaced_element = styled_node->node->tag_name == "img" || styled_node->node->tag_name == "svg" || is_button_input(*styled_node->node) || forms::kind_of(*styled_node->node) != forms::Kind::None;
         bool should_inline_shrink = (box_type == BoxType::Inline || box_type == BoxType::InlineBlock) && !is_replaced_element;
 
-        if (w_str.empty() && (dimensions.content.width <= 0.001f || should_inline_shrink || is_abs_fixed))
+        // with left and right both set, an absolute box with auto width fills the space they leave (set above)
+        bool abs_stretched = is_abs_fixed && !styled_node->value("left").empty() && !styled_node->value("right").empty();
+        if (w_str.empty() && !abs_stretched && (dimensions.content.width <= 0.001f || should_inline_shrink || is_abs_fixed))
         {
             if (styled_node->node->type() != NodeType::Text)
             {
                 if (!is_replaced_element || dimensions.content.width <= 0.001f)
                 {
                     dimensions.content.width = max_x_offset;
+                    const std::string min_width = styled_node->value("min-width");
+                    if (!min_width.empty() && min_width != "auto") {
+                        float font = LayoutEngine::parse_px(styled_node->value("font-size"), 16.0f);
+                        float minimum = LayoutEngine::parse_px(min_width, min_width.find('%') != std::string::npos ? container_dimensions.content.width : font);
+                        if (styled_node->value("box-sizing") == "border-box")
+                            minimum -= dimensions.padding.left + dimensions.padding.right + dimensions.border.left + dimensions.border.right;
+                        dimensions.content.width = std::max(dimensions.content.width, std::max(0.0f, minimum));
+                    }
                 }
             }
 
@@ -601,6 +789,9 @@ namespace linweb
 
             for (const auto &child : children)
             {
+                // Line breaks have no painted box and may still carry their
+                // initial (0,0) coordinates. They cannot extend scroll bounds.
+                if (child->styled_node->node->tag_name == "br") continue;
                 if (child->position == PositionType::Static || child->position == PositionType::Relative)
                 {
                     // Use the child's total content height which already includes its own children and margins

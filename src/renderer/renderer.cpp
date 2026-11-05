@@ -1,9 +1,12 @@
 #include "renderer/renderer.h"
+#include "utils/control_label.h"
 #include "renderer/renderer_internal.h"
 #include "renderer/matrix_math.h"
 #include "renderer/texture_manager.h"
 #include "renderer/svg_loader.h"
 #include "renderer/scrollbar.h"
+#include "renderer/form_renderer.h"
+#include "renderer/background_renderer.h"
 #include "style/colors.h"
 #include <algorithm>
 #include <sstream>
@@ -102,11 +105,10 @@ namespace linweb {
             size_t end_pos = processed.find(")", rgba_pos);
             if (end_pos != std::string::npos)
             {
-                for (size_t i = rgba_pos; i < end_pos; ++i)
-                {
-                    if (processed[i] == ' ')
-                        processed[i] = ',';
-                }
+                // Keep comma-separated color components together without
+                // introducing extra commas in rgba(0, 0, 0, 0.5).
+                processed.erase(std::remove_if(processed.begin() + rgba_pos, processed.begin() + end_pos,
+                    [](unsigned char c) { return std::isspace(c); }), processed.begin() + end_pos);
             }
         }
 
@@ -310,10 +312,10 @@ namespace linweb {
                     }
                     else if (parts[0].find("to ") == 0)
                     {
-                        if (parts[0].find("right") != std::string::npos) grad.angle = 0;
-                        else if (parts[0].find("bottom") != std::string::npos) grad.angle = 90;
-                        else if (parts[0].find("left") != std::string::npos) grad.angle = 180;
-                        else if (parts[0].find("top") != std::string::npos) grad.angle = 270;
+                        if (parts[0].find("right") != std::string::npos) grad.angle = 90;
+                        else if (parts[0].find("bottom") != std::string::npos) grad.angle = 180;
+                        else if (parts[0].find("left") != std::string::npos) grad.angle = 270;
+                        else if (parts[0].find("top") != std::string::npos) grad.angle = 0;
                         color_start_idx = 1;
                     }
 
@@ -379,6 +381,17 @@ namespace linweb {
                     pos++;
                 }
                 parts.push_back(trim(inner.substr(last_pos)));
+
+                // A leading shape/size/position ("85% 80% at 34% 11%", "circle", "closest-side") is not a color stop.
+                // The colors and stops that follow are what the gradient paints.
+                if (!parts.empty()) {
+                    const std::string& first = parts[0];
+                    bool geometry = first.find(" at ") != std::string::npos || first.rfind("at ", 0) == 0 ||
+                        (!first.empty() && (std::isdigit(static_cast<unsigned char>(first[0])) || first[0] == '.' || first[0] == '-')) ||
+                        first.rfind("circle", 0) == 0 || first.rfind("ellipse", 0) == 0 ||
+                        first.rfind("closest-", 0) == 0 || first.rfind("farthest-", 0) == 0;
+                    if (geometry) parts.erase(parts.begin());
+                }
 
                 if (parts.size() >= 2)
                 {
@@ -489,12 +502,14 @@ namespace linweb {
         }
 
         render_box(root, 1.0f, Filter());
+        draw_form_overlays(root);
     }
 
     void Renderer::render_box(const std::shared_ptr<LayoutBox> &box, float inherited_opacity, const Filter &inherited_filter)
     {
         if (!box || !box->styled_node || !box->styled_node->node)
             return;
+        if (box->styled_node->value("visibility") == "hidden" || box->styled_node->value("visibility") == "collapse") return;
 
         if (box->styled_node->node->type() == NodeType::Element && box->styled_node->node->tag_name == "br")
             return;
@@ -676,14 +691,14 @@ namespace linweb {
 
                 bool is_image_or_svg = (box->styled_node->node->tag_name == "img" || box->styled_node->node->tag_name == "svg");
 
-                if (combined_filter.hasDropShadow && !is_image_or_svg)
+                if (combined_filter.hasDropShadow && !is_image_or_svg && a > 0.0f)
                 {
                     float sx = full_bg_x + combined_filter.dropShadow.offsetX - combined_filter.dropShadow.spread;
                     float sy = full_bg_y + combined_filter.dropShadow.offsetY - combined_filter.dropShadow.spread;
                     float sw = full_bg_w + combined_filter.dropShadow.spread * 2.0f;
                     float sh = full_bg_h + combined_filter.dropShadow.spread * 2.0f;
 
-                    draw_rect(sx, sy, sw, sh, combined_filter.dropShadow.r, combined_filter.dropShadow.g, combined_filter.dropShadow.b, combined_filter.dropShadow.a * total_opacity, radius + combined_filter.dropShadow.spread, combined_filter.dropShadow.blur + combined_filter.blur, combined_filter.invert, Gradient(), 0.0f, true);
+                    draw_rect(sx, sy, sw, sh, combined_filter.dropShadow.r, combined_filter.dropShadow.g, combined_filter.dropShadow.b, combined_filter.dropShadow.a * a, radius + combined_filter.dropShadow.spread, combined_filter.dropShadow.blur + combined_filter.blur, combined_filter.invert, Gradient(), 0.0f, true);
                 }
 
                 if (shader_background)
@@ -750,6 +765,7 @@ namespace linweb {
                     }
                 }
 
+                draw_background_image(*box, {bg_x, bg_y, bg_w, bg_h});
                 if (box->styled_node->node->tag_name == "img" || box->styled_node->node->tag_name == "svg") {
                     std::string src = box->styled_node->node->data.src();
                     Texture tex;
@@ -759,7 +775,9 @@ namespace linweb {
                     if (svg_width <= 0) svg_width = 100;
                     if (svg_height <= 0) svg_height = 100;
                     
-                    std::string svg_color = box->styled_node->value("color");
+                    // fill (inherited, currentColor already resolved) paints the icon; color is the fallback
+                    std::string svg_color = box->styled_node->value("fill");
+                    if (svg_color.empty() || svg_color == "none") svg_color = box->styled_node->value("color");
                     if (svg_color.empty()) svg_color = "black";
 
                     if (box->styled_node->node->tag_name == "svg") {
@@ -780,12 +798,27 @@ namespace linweb {
                                        combined_filter.dropShadow.r, combined_filter.dropShadow.g, combined_filter.dropShadow.b,
                                        combined_filter.dropShadow.a * total_opacity,
                                        combined_filter.dropShadow.offsetX, combined_filter.dropShadow.offsetY,
-                                       combined_filter.dropShadow.blur, tex.width, tex.height);
+                                       combined_filter.dropShadow.blur, tex.width, tex.height, total_opacity);
                         } else {
                             draw_image(tex.id, box->dimensions.content.x, box->dimensions.content.y,
-                                       box->dimensions.content.width, box->dimensions.content.height, radius);
+                                       box->dimensions.content.width, box->dimensions.content.height, radius,
+                                       0, 0, 0, 0, 0, 0, 0, 0, 0, total_opacity);
                         }
                     }
+                }
+
+                draw_form_control(box, total_opacity, radius);
+                draw_list_marker(box, total_opacity);
+                if (is_button_input(*box->styled_node->node)) {
+                    float size = LayoutEngine::parse_px(box->styled_node->value("font-size"), 16);
+                    if (size <= 0) size = 13.3f;
+                    std::string label = button_input_label(*box->styled_node->node);
+                    float width = measure_text(label, size);
+                    float cr = 0, cg = 0, cb = 0, ca = 1;
+                    parse_color(box->styled_node->value("color"), cr, cg, cb, ca);
+                    float x = box->dimensions.content.x + std::max(0.0f, (box->dimensions.content.width - width) / 2);
+                    float y = box->dimensions.content.y + std::max(0.0f, (box->dimensions.content.height - get_line_height(size)) / 2) + RendererState::font_ascent_px * size / RendererState::base_font_size;
+                    draw_text(label, x, y, size, cr, cg, cb, ca * total_opacity);
                 }
 
                 if ((!borders_uniform || !all_sides_present) && has_border)
@@ -896,10 +929,10 @@ namespace linweb {
 
             BoxShadow text_shadow = resolve_text_shadow(box);
             if (text_shadow.active) {
-                draw_text(text_node->data, box->dimensions.content.x + text_shadow.offsetX, box->dimensions.content.y + y_offset + scaled_ascent + text_shadow.offsetY, font_size, text_shadow.r, text_shadow.g, text_shadow.b, text_shadow.a * total_opacity, is_bold, text_shadow.blur + combined_filter.blur, combined_filter.invert, is_monospace);
+                draw_text(text_node->data, box->dimensions.content.x - box->text_leading_trim + text_shadow.offsetX, box->dimensions.content.y + y_offset + scaled_ascent + text_shadow.offsetY, font_size, text_shadow.r, text_shadow.g, text_shadow.b, text_shadow.a * total_opacity, is_bold, text_shadow.blur + combined_filter.blur, combined_filter.invert, is_monospace);
             }
 
-            draw_text(text_node->data, box->dimensions.content.x, box->dimensions.content.y + y_offset + scaled_ascent, font_size, r, g, b, a * total_opacity, is_bold, combined_filter.blur, combined_filter.invert, is_monospace);
+            draw_text(text_node->data, box->dimensions.content.x - box->text_leading_trim, box->dimensions.content.y + y_offset + scaled_ascent, font_size, r, g, b, a * total_opacity, is_bold, combined_filter.blur, combined_filter.invert, is_monospace);
             if (debug_type == DebugType::Text)
             {
                 draw_rect(box->dimensions.content.x, box->dimensions.content.y,

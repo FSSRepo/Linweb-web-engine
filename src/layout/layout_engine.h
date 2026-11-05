@@ -47,6 +47,8 @@ struct LayoutBox {
     std::vector<std::shared_ptr<LayoutBox>> children;
     std::weak_ptr<LayoutBox> parent;
     float last_line_width = 0;
+    // Width of the leading white space a text box drops at the start of its block; drawing shifts left by it.
+    float text_leading_trim = 0;
     float total_y_offset = 0;
     float scroll_y = 0;
     float total_content_height = 0;
@@ -75,6 +77,7 @@ struct LayoutBox {
 
     // Flex layout methods
     void layout_flex(Dimensions container_dimensions, const std::vector<std::shared_ptr<LayoutBox>>& normal_flow_children);
+    void layout_flex_items(Dimensions container_dimensions, const std::vector<std::shared_ptr<LayoutBox>>& normal_flow_children);
     void flex_initial_pass(Dimensions container_dimensions, const std::vector<std::shared_ptr<LayoutBox>>& children, bool is_column, float& main_offset, float& cross_size);
     void flex_distribute_grow(Dimensions container_dimensions, const std::vector<std::shared_ptr<LayoutBox>>& children, bool is_column, float& main_offset);
     void flex_justify_content(const std::vector<std::shared_ptr<LayoutBox>>& children, bool is_column, float main_offset, float& start_main_offset, float& main_gap);
@@ -88,10 +91,12 @@ struct LayoutBox {
 
     // Positioned layout methods
     void layout_positioned_children();
+    void center_button_content();
     void apply_relative_position(Dimensions container_dimensions);
 
     // Internal helpers
     void layout_children(Dimensions container_dimensions);
+    void layout_table(Dimensions container_dimensions);
 };
 
 class LayoutEngine {

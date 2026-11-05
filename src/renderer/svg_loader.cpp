@@ -57,7 +57,10 @@ namespace linweb
 
         for (const auto &attr : node->data.attributes)
         {
-            ss << " " << attr.first << "=\"" << attr.second << "\"";
+            // HTML attribute names are normalized to lowercase, whereas SVG
+            // attributes such as viewBox are case-sensitive to NanoSVG.
+            const std::string name = attr.first == "viewbox" ? "viewBox" : attr.first;
+            ss << " " << name << "=\"" << attr.second << "\"";
         }
         ss << ">";
 
@@ -279,6 +282,11 @@ namespace linweb
                 tag.insert(tag.size() - 1,
                     " width=\"" + std::to_string(width) +
                     "\" height=\"" + std::to_string(height) + "\"");
+            }
+
+            // Paths without a fill of their own take the color the icon is painted with (the inherited fill)
+            if (!color.empty() && tag.find(" fill=") == std::string::npos && tag.back() == '>') {
+                tag.insert(tag.size() - 1, " fill=\"" + color + "\"");
             }
 
             result.replace(svg_start, svg_end - svg_start + 1, tag);

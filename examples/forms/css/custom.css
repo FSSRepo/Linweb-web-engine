@@ -1,0 +1,25 @@
+/* Author overrides for form controls. Only the look changes: the value, events and
+   keyboard/mouse behaviour come from the engine and must keep working. */
+
+.field {
+    background: #fff8e1;
+    border: 2px solid #b26a00;
+    border-radius: 8px;
+    padding: 6px 10px;
+    color: #3e2700;
+    font-size: 16px;
+    width: 220px;
+}
+
+.slider {
+    accent-color: #2e7d32;
+    width: 260px;
+    height: 18px;
+}
+
+.meter {
+    accent-color: #2e7d32;
+    width: 260px;
+    height: 14px;
+    margin-left: 12px;
+}

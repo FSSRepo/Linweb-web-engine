@@ -1,13 +1,16 @@
 #include "renderer/text_renderer.h"
 #include "renderer/renderer_internal.h"
+#include "utils/text_encoding.h"
 
 namespace linweb {
 
 float Renderer::measure_text(const std::string& text, float font_size, bool is_bold, bool is_monospace) {
     float xpos = 0;
     float scale = font_size / RendererState::base_font_size;
-    for (char c : text) {
-        if (c < 32 || c >= 128) continue;
+    for (size_t pos = 0; pos < text.size();) {
+        uint32_t c = next_codepoint(text, pos);
+        if (c < 32) continue;
+        if (c > 255) c = '?';
         stbtt_bakedchar *b;
         if (is_monospace)
             b = &RendererState::cdata_mono[c - 32];
@@ -36,8 +39,10 @@ void Renderer::draw_text(const std::string& text, float x, float y, float font_s
     std::vector<float> verts;
     verts.reserve(text.size() * 6 * 8);
 
-    for (char c : text) {
-        if (c < 32 || c >= 128) continue;
+    for (size_t pos = 0; pos < text.size();) {
+        uint32_t c = next_codepoint(text, pos);
+        if (c < 32) continue;
+        if (c > 255) c = '?';
         stbtt_bakedchar *bc;
         if (is_monospace)
             bc = &RendererState::cdata_mono[c - 32];

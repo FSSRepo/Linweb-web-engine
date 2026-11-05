@@ -37,6 +37,50 @@ namespace linweb
     }
 
     /**
+     * @brief Centers a button's in-flow content vertically, as browsers do with a button taller than its content.
+     *
+     * A flex button aligns its items itself, so it is left alone (moving them again would count the offset twice).
+     */
+    void LayoutBox::center_button_content()
+    {
+        if (styled_node->node->tag_name != "button" || box_type == BoxType::Flex)
+            return;
+
+        float top = 0, bottom = 0;
+        bool any = false;
+        for (const auto &child : children)
+        {
+            if (child->position == PositionType::Absolute || child->position == PositionType::Fixed)
+                continue;
+            float child_top = child->dimensions.content.y - child->dimensions.margin.top - child->dimensions.padding.top - child->dimensions.border.top;
+            float child_bottom = child->dimensions.content.y + child->dimensions.content.height + child->dimensions.padding.bottom +
+                                 child->dimensions.border.bottom + child->dimensions.margin.bottom;
+            top = any ? std::min(top, child_top) : child_top;
+            bottom = any ? std::max(bottom, child_bottom) : child_bottom;
+            any = true;
+        }
+        if (!any)
+            return;
+
+        float free = dimensions.content.height - (bottom - top);
+        if (free <= 0.001f)
+            return;
+        float offset = free / 2.0f;
+
+        for (const auto &child : children)
+        {
+            if (child->position == PositionType::Absolute || child->position == PositionType::Fixed)
+                continue;
+            Dimensions shifted;
+            shifted.content.x = child->dimensions.content.x - child->dimensions.margin.left - child->dimensions.padding.left - child->dimensions.border.left;
+            shifted.content.y = child->dimensions.content.y - child->dimensions.margin.top - child->dimensions.padding.top - child->dimensions.border.top + offset;
+            shifted.content.width = child->dimensions.content.width;
+            shifted.content.height = child->dimensions.content.height;
+            child->layout(shifted);
+        }
+    }
+
+    /**
      * @brief Applies text alignment (left, center, right) to a line of elements.
      *
      * @param line Vector of boxes that make up the line.
@@ -44,11 +88,48 @@ namespace linweb
      */
     void LayoutBox::apply_line_alignment(const std::vector<std::shared_ptr<LayoutBox>> &line, float line_width)
     {
+        if (line.empty()) return;
+        // An inline wrapper can establish its baseline through a descendant
+        // with vertical-align: middle (for example an icon inside a link).
+        auto middle_aligned = [](const std::shared_ptr<LayoutBox>& box) {
+            auto current = box;
+            while (current) {
+                std::string align = current->styled_node->value("vertical-align");
+                if (!align.empty() && align != "baseline") return align == "middle";
+                if (current->box_type != BoxType::Inline || current->children.size() != 1) break;
+                current = current->children.front();
+            }
+            return false;
+        };
+        float line_height = 0;
+        for (const auto& box : line) {
+            line_height = std::max(line_height, box->dimensions.content.height + box->dimensions.padding.top +
+                box->dimensions.padding.bottom + box->dimensions.border.top + box->dimensions.border.bottom +
+                box->dimensions.margin.top + box->dimensions.margin.bottom);
+        }
+        for (const auto& box : line) {
+            if (!middle_aligned(box)) continue;
+            float height = box->dimensions.content.height + box->dimensions.padding.top + box->dimensions.padding.bottom +
+                box->dimensions.border.top + box->dimensions.border.bottom + box->dimensions.margin.top + box->dimensions.margin.bottom;
+            float offset = (line_height - height) / 2.0f;
+            if (offset <= 0) continue;
+            Dimensions shifted;
+            shifted.content.x = box->dimensions.content.x - box->dimensions.margin.left - box->dimensions.padding.left - box->dimensions.border.left;
+            shifted.content.y = box->dimensions.content.y - box->dimensions.margin.top - box->dimensions.padding.top - box->dimensions.border.top + offset;
+            shifted.content.width = box->dimensions.content.width;
+            shifted.content.height = box->dimensions.content.height;
+            box->layout(shifted);
+        }
         std::string text_align = styled_node->value("text-align");
-        if (line.empty() || text_align == "left" || text_align.empty())
+        if (text_align == "left" || text_align.empty())
             return;
 
-        float extra_space = dimensions.content.width - line_width;
+        // A collapsible space at the end of a line is removed before alignment, so it must not
+        // count toward the width that gets centered or right-aligned.
+        float trailing_space = 0;
+        for (auto it = line.rbegin(); it != line.rend() && is_whitespace_node(*it); ++it)
+            trailing_space += (*it)->dimensions.content.width;
+        float extra_space = dimensions.content.width - (line_width - trailing_space);
         if (extra_space <= 0)
             return;
 
@@ -169,8 +250,13 @@ namespace linweb
         std::string overflow = styled_node->value("overflow");
         bool is_scrollable = (overflow == "auto" || overflow == "scroll" || overflow == "hidden");
 
-        bool parent_can_collapse_top = !is_root && !is_scrollable && (dimensions.border.top == 0.0f && dimensions.padding.top == 0.0f && !parent_has_inline_content);
-        bool parent_can_collapse_bottom = !is_root && !is_scrollable && (dimensions.border.bottom == 0.0f && dimensions.padding.bottom == 0.0f && !parent_has_specified_height);
+        // An inline-block, or a flex or grid item, starts its own formatting context: its children's margins stay
+        // inside it, so they never collapse through its edges (they make it taller, or move its content, as in a browser).
+        auto container = parent.lock();
+        bool is_grid_or_flex_item = container && (container->box_type == BoxType::Flex || container->box_type == BoxType::Grid);
+        bool is_block_context = box_type == BoxType::InlineBlock || is_grid_or_flex_item;
+        bool parent_can_collapse_top = !is_root && !is_scrollable && !is_block_context && (dimensions.border.top == 0.0f && dimensions.padding.top == 0.0f && !parent_has_inline_content);
+        bool parent_can_collapse_bottom = !is_root && !is_scrollable && !is_block_context && (dimensions.border.bottom == 0.0f && dimensions.padding.bottom == 0.0f && !parent_has_specified_height);
 
         auto layout_children_pass = [&](float &cur_x, float &cur_y, float &max_lh, float &max_x_off,
                                          std::vector<std::shared_ptr<LayoutBox>> &line,
@@ -179,6 +265,7 @@ namespace linweb
             for (const auto &child : normal_flow_children)
             {
                 bool is_ws = is_whitespace_node(child);
+                if (is_ws && line.empty()) continue;
                 if (child->box_type == BoxType::Inline || child->box_type == BoxType::InlineBlock)
                 {
                     if (has_prev && !is_ws)
@@ -243,7 +330,7 @@ namespace linweb
 
         // Second pass: if width was auto-determined from children (shrink-to-fit) and changed
         std::string w_str = styled_node->value("width");
-        if (w_str.empty() && max_x_offset > orig_content_width + 0.001f)
+        if (w_str.empty() && (box_type == BoxType::Inline || box_type == BoxType::InlineBlock) && max_x_offset > orig_content_width + 0.001f)
         {
             dimensions.content.width = max_x_offset;
 

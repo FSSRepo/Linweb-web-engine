@@ -26,7 +26,8 @@ namespace linweb
             current_line.clear();
             max_x_offset = std::max(max_x_offset, current_x_offset);
             current_x_offset = 0;
-            current_y_offset += max_line_height;
+            // A break on an empty line still advances by the parent's line height.
+            current_y_offset += max_line_height > 0 ? max_line_height : line_height;
             max_line_height = 0;
             child->dimensions.content.width = 0;
             child->dimensions.content.height = 0;
@@ -98,7 +99,7 @@ namespace linweb
         child_container.content.width = available_width - current_x_offset;
         child_container.content.height = container_dimensions.content.height;
 
-        if (current_x_offset + child_width > available_width && current_x_offset > 0)
+        if (styled_node->value("white-space") != "nowrap" && current_x_offset + child_width > available_width && current_x_offset > 0)
         {
             apply_line_alignment(current_line, current_x_offset);
             current_line.clear();

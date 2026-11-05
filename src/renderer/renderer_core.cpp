@@ -14,9 +14,9 @@ namespace linweb {
     unsigned char RendererState::font_buffer[1 << 20];
     unsigned char RendererState::font_bold_buffer[1 << 20];
     unsigned char RendererState::font_mono_buffer[1 << 20];
-    stbtt_bakedchar RendererState::cdata[96];
-    stbtt_bakedchar RendererState::cdata_bold[96];
-    stbtt_bakedchar RendererState::cdata_mono[96];
+    stbtt_bakedchar RendererState::cdata[224];
+    stbtt_bakedchar RendererState::cdata_bold[224];
+    stbtt_bakedchar RendererState::cdata_mono[224];
     GLuint RendererState::ftex = 0;
     GLuint RendererState::ftex_bold = 0;
     GLuint RendererState::ftex_mono = 0;

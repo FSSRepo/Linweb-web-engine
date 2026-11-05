@@ -1,0 +1,53 @@
+<!doctype html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Form controls</title>
+    <style>
+        body { font-family: sans-serif; margin: 24px; background: #f5f5f5; color: #222; }
+        h1 { font-size: 22px; }
+        .row { margin: 12px 0; }
+        #out { margin-top: 16px; font-size: 14px; }
+    </style>
+</head>
+<body>
+    <h1>Form controls (default look)</h1>
+
+    <div class="row">
+        <input id="name" type="text" value="Ada">
+    </div>
+    <div class="row">
+        <input id="secret" type="password" value="abc123">
+    </div>
+    <div class="row">
+        <input id="volume" type="range" min="0" max="100" step="5" value="40">
+        <progress id="bar" max="100" value="40"></progress>
+    </div>
+
+    <p id="out">Waiting for the script...</p>
+
+    <script>
+        var volume = document.getElementById('volume');
+        var bar = document.getElementById('bar');
+        var out = document.getElementById('out');
+
+        function show() {
+            out.innerText = 'name=' + document.getElementById('name').value +
+                '  volume=' + volume.value + '  events=' + (window.inputEvents || 0);
+            console.log('forms-check ' + out.innerText);
+        }
+
+        // The script drives the controls: writing .value must update what is drawn, and
+        // the page must still receive the input event the engine fires for user changes.
+        window.inputEvents = 0;
+        volume.addEventListener('input', function () {
+            window.inputEvents = (window.inputEvents || 0) + 1;
+            bar.value = volume.value;
+            show();
+        });
+        volume.value = '60';
+        bar.value = '60';
+        show();
+    </script>
+</body>
+</html>

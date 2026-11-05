@@ -1,0 +1,36 @@
+<!doctype html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Search box</title>
+    <style>
+        body { font-family: sans-serif; margin: 0; padding: 60px 0; background: #ffffff; color: #202124; text-align: center; }
+        .search {
+            display: inline-block;
+            width: 580px;
+            height: 44px;
+            box-sizing: border-box;
+            padding: 0 16px;
+            border: 1px solid #dfe1e5;
+            border-radius: 24px;
+            background: #ffffff;
+            box-shadow: 0 1px 6px rgba(32, 33, 36, 0.28);
+            font-size: 16px;
+            color: #202124;
+            outline: none;
+        }
+        .search:focus {
+            border-color: #dfe1e5;
+            box-shadow: 0 1px 6px rgba(32, 33, 36, 0.4);
+        }
+        .search::placeholder { color: #9aa0a6; }
+    </style>
+</head>
+<body>
+    <div><input id="q" class="search" type="search" value=""></div>
+    <script>
+        document.getElementById('q').value = 'linweb';
+        console.log('search-box value=' + document.getElementById('q').value);
+    </script>
+</body>
+</html>

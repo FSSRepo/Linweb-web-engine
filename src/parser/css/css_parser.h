@@ -21,7 +21,7 @@ struct StyleSheet {
 
 class CSSParser {
 public:
-    static StyleSheet parse(const std::string& source);
+    static StyleSheet parse(const std::string& source, float viewport_width = 800, float viewport_height = 600);
     static std::vector<Selector> parse_selectors(const std::string& source);
 
 private:
@@ -31,6 +31,7 @@ private:
     Rule parse_rule();
 
     CSSTokenizer tokenizer;
+    float viewport_width_ = 800, viewport_height_ = 600;
 };
 
 } // namespace linweb

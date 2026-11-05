@@ -150,6 +150,24 @@ std::shared_ptr<StyledNode> StyleEngine::build_style_tree_recursive(
         root, stylesheet, hovered_node, focused_node, active_node);
     
     PropertyResolver::resolve_inherited_values(styled_node->specified_values, inherited_values);
+    // Resolve relative font sizes once against the parent's computed size.
+    // Descendant layout must not repeatedly interpret the same percentage.
+    std::string font = styled_node->value("font-size");
+    if (!font.empty()) {
+        float parent_font = inherited_values.count("font-size") ? parse_px(inherited_values.at("font-size"), 16) : 16;
+        if (parent_font <= 0) parent_font = 16;
+        float pixels = 0;
+        try {
+            if (font == "small") pixels = 13;
+            else if (font == "medium") pixels = 16;
+            else if (font == "large") pixels = 18;
+            else if (font.find("rem") != std::string::npos) pixels = std::stof(font) * 16;
+            else if (font.find("em") != std::string::npos) pixels = std::stof(font) * parent_font;
+            else if (font.find('%') != std::string::npos) pixels = std::stof(font) * parent_font / 100;
+            else if (font.find("pt") != std::string::npos) pixels = std::stof(font) * 96 / 72;
+        } catch (...) {}
+        if (pixels > 0) styled_node->specified_values["font-size"] = std::to_string(pixels) + "px";
+    }
     PropertyResolver::resolve_currentColor(styled_node->specified_values, inherited_values);
     
     TransitionEngine::apply_transitions(styled_node, current_time, parent_width, parent_height);

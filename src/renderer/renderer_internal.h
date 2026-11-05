@@ -12,9 +12,9 @@ struct RendererState {
     static unsigned char font_buffer[1 << 20];
     static unsigned char font_bold_buffer[1 << 20];
     static unsigned char font_mono_buffer[1 << 20];
-    static stbtt_bakedchar cdata[96];
-    static stbtt_bakedchar cdata_bold[96];
-    static stbtt_bakedchar cdata_mono[96];
+    static stbtt_bakedchar cdata[224];
+    static stbtt_bakedchar cdata_bold[224];
+    static stbtt_bakedchar cdata_mono[224];
     static GLuint ftex;
     static GLuint ftex_bold;
     static GLuint ftex_mono;

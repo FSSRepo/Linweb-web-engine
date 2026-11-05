@@ -19,15 +19,26 @@
 #include "scripting/style_bindings.h"
 #include "scripting/console_bindings.h"
 #include "utils/file_utils.h"
+#include "utils/page_resources.h"
 #include "utils/dom_traversal.h"
 #include "utils/layout_traversal.h"
 #include "utils/scroll_manager.h"
 #include "platform/window.h"
 #include "platform/keyboard_handler.h"
+#include "forms/form_bindings.h"
+#include "forms/form_controls.h"
 #include "platform/scroll_handler.h"
 #include "platform/mouse_handler.h"
 #include "debug/debug_visualizer.h"
 #include "debug/node_tree_view.h"
+#include "debug/frame_capture.h"
+#include "network/http_client.h"
+#include "network/page_downloader.h"
+#include "utils/log.h"
+#include <cctype>
+#if !defined(WESTON_PLATFORM) && !defined(XORG_PLATFORM)
+#include <GLFW/glfw3.h>
+#endif
 
 namespace linweb {
 
@@ -59,14 +70,57 @@ void update_animations_on_tree(const std::shared_ptr<StyledNode>& node, const St
     }
 }
 
+// downloads/<host and path of the URL>, so each page keeps its own copy of its files
+std::string download_directory_for(const std::string& url) {
+    size_t scheme = url.find("://");
+    std::string name = scheme == std::string::npos ? url : url.substr(scheme + 3);
+    for (char& c : name) {
+        if (!std::isalnum(static_cast<unsigned char>(c)) && c != '.' && c != '-') c = '_';
+    }
+    if (name.size() > 80) name.resize(80);
+    return "downloads/" + name;
+}
+
 int main(int argc, char** argv) {
     DebugType debug_mode = DebugType::None;
     std::string html_file = "assets/pages/index.html";
     bool file_specified = false;
+    bool static_mode = false;
+    std::string screenshot_path;
+    double screenshot_delay = 0.0;
+    std::string layout_dump_path;
+    std::string user_css_path;
+    int window_width = 800, window_height = 600;
 
     for (int i = 1; i < argc; ++i) {
         std::string arg = argv[i];
-        if (arg == "--debug") {
+        if (arg == "--screenshot-live") {
+            static_mode = false;
+        } else if (arg.compare(0, 19, "--screenshot-delay=") == 0) {
+            try { screenshot_delay = std::max(0.0, std::stod(arg.substr(19))); } catch (...) { std::cerr << "Invalid screenshot delay\n"; return 1; }
+        } else if (arg.compare(0, 7, "--size=") == 0) {
+            // --size=WxH sets the window (and so the viewport) size; the default is 800x600
+            std::string size = arg.substr(7);
+            size_t x = size.find('x');
+            try {
+                window_width = std::stoi(size.substr(0, x));
+                window_height = std::stoi(size.substr(x + 1));
+            } catch (...) { std::cerr << "Invalid size, use --size=WxH: " << size << std::endl; return 1; }
+        } else if (arg.compare(0, 14, "--layout-dump=") == 0) {
+            layout_dump_path = arg.substr(14);
+        } else if (arg.compare(0, 6, "--log=") == 0) {
+            if (!log_open(arg.substr(6))) {
+                std::cerr << "Could not open the log: " << arg.substr(6) << std::endl;
+                return 1;
+            }
+        } else if (arg.compare(0, 11, "--user-css=") == 0) {
+            user_css_path = arg.substr(11);
+        } else if (arg == "--static") {
+            static_mode = true;
+        } else if (arg.compare(0, 13, "--screenshot=") == 0) {
+            screenshot_path = arg.substr(13);
+            static_mode = true;
+        } else if (arg == "--debug") {
             debug_mode = DebugType::Element;
         } else if (arg == "--debug=element") {
             debug_mode = DebugType::Element;
@@ -93,9 +147,17 @@ int main(int argc, char** argv) {
         }
     }
 
+    log_event("start", "page " + html_file);
+
     // 1. Initialize Window
+#if !defined(WESTON_PLATFORM) && !defined(XORG_PLATFORM)
+    if (!screenshot_path.empty()) {
+        if (!glfwInit()) return 1;
+        glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
+    }
+#endif
     Window window;
-    if (!window.init(800, 600, "Linweb")) {
+    if (!window.init(window_width, window_height, "Linweb")) {
         return -1;
     }
     window.enable_blend();
@@ -115,6 +177,18 @@ int main(int argc, char** argv) {
     // 4. Load HTML
     auto start_time = std::chrono::high_resolution_clock::now();
 
+    if (is_http_url(html_file)) {
+        // a URL is downloaded with its files, and the local copy of the page is what gets loaded
+        DownloadSummary summary = download_page(html_file, download_directory_for(html_file));
+        log_event("download", html_file + " -> " + summary.html_path + " (" + std::to_string(summary.downloaded) +
+                  " files, " + std::to_string(summary.failed) + " failed)");
+        if (summary.html_path.empty()) {
+            std::cerr << "Could not download " << html_file << std::endl;
+            return -1;
+        }
+        html_file = summary.html_path;
+    }
+
     std::string html_base_dir = get_directory(html_file);
 
     std::string html = read_file(html_file);
@@ -127,49 +201,30 @@ int main(int argc, char** argv) {
     auto html_start = std::chrono::high_resolution_clock::now();
     auto dom = HTMLParser::parse(html);
     g_dom_root = dom;
+    log_event("parse", std::to_string(html.size()) + " bytes, " + std::to_string(count_dom_nodes(dom)) + " nodes");
     auto html_end = std::chrono::high_resolution_clock::now();
     
-    // Resolve resource paths in the DOM (img src, etc.)
-    {
-        std::vector<std::shared_ptr<ElementNode>> imgs;
-        find_tags(dom, "img", imgs);
-        for (auto& img : imgs) {
-            if (img->data.attributes.count("src")) {
-                img->data.attributes["src"] = resolve_resource_path(html_base_dir, img->data.attributes["src"]);
-            }
-        }
-    }
-
-    // 6. Load Resources (CSS)
+    // Resolve local downloaded resources and expand CSS imports in document order.
     auto resources_start = std::chrono::high_resolution_clock::now();
-    std::string css =
-        "body { color: black; }";
-
-    std::vector<std::shared_ptr<ElementNode>> links;
+    std::string css = "body { color: black; }" + prepare_page_resources(dom, html_base_dir);
+    if (!user_css_path.empty()) {
+        // the user's stylesheet comes last, so it wins over the page's own rules
+        std::string user_css = read_file(user_css_path);
+        if (user_css.empty()) std::cerr << "Could not read the user stylesheet: " << user_css_path << std::endl;
+        css += "\n" + user_css;
+        log_event("css", "user stylesheet " + user_css_path + " (" + std::to_string(user_css.size()) + " bytes)");
+    }
+    std::vector<std::shared_ptr<ElementNode>> links, style_tags;
     find_tags(dom, "link", links);
-    for (auto& link : links) {
-        if (link->data.attributes.count("rel") && link->data.attributes.at("rel") == "stylesheet") {
-            if (link->data.attributes.count("href")) {
-                std::string css_path = resolve_resource_path(html_base_dir, link->data.attributes.at("href"));
-                css += read_file(css_path) + "\n";
-            }
-        }
-    }
-
-    std::vector<std::shared_ptr<ElementNode>> style_tags;
     find_tags(dom, "style", style_tags);
-    for (auto& style_tag : style_tags) {
-        for (auto& child : style_tag->children) {
-            if (child->type() == NodeType::Text) {
-                css += std::static_pointer_cast<TextNode>(child)->data + "\n";
-            }
-        }
-    }
     auto resources_end = std::chrono::high_resolution_clock::now();
 
     auto css_start = std::chrono::high_resolution_clock::now();
-    auto stylesheet = CSSParser::parse(css);
+    int initial_width = 800, initial_height = 600;
+    window.get_framebuffer_size(initial_width, initial_height);
+    auto stylesheet = CSSParser::parse(css, static_cast<float>(initial_width), static_cast<float>(initial_height));
     auto css_end = std::chrono::high_resolution_clock::now();
+    log_event("css", "parsed " + std::to_string(stylesheet.rules.size()) + " rules");
 
     // 7. Setup viewport
     int fbw = 0, fbh = 0;
@@ -185,17 +240,22 @@ int main(int argc, char** argv) {
     auto style_end = std::chrono::high_resolution_clock::now();
 
     g_style_tree = style_tree;
+    log_event("style", "styled tree built");
 
     auto layout_start = std::chrono::high_resolution_clock::now();
     auto layout_tree = LayoutEngine::build_layout_tree(style_tree);
+    log_event("layout-tree", "boxes built");
 
     if (layout_tree) {
         apply_scroll_states(layout_tree);
+        log_event("layout-tree", "running layout");
         layout_tree->layout(viewport);
+        log_event("layout-tree", "layout done");
     }
     auto layout_end = std::chrono::high_resolution_clock::now();
 
     g_layout_tree = layout_tree;
+    log_event("layout", std::to_string(stylesheet.rules.size()) + " css rules");
 
     // 9. Print Information
     auto end_time = std::chrono::high_resolution_clock::now();
@@ -228,12 +288,32 @@ int main(int argc, char** argv) {
     g_js_engine = &js;
     keyboard_handler.set_js_engine(g_js_engine);
 
+    // form controls: the focused node is the one :focus reads, text is measured with the renderer's font
+    forms::bind_focus(&g_focused_node);
+    forms::bind_dirty(&g_dom_dirty);
+    forms::set_root(dom);
+    forms::set_measure([](const std::string& text, float font_size) { return Renderer::measure_text(text, font_size); });
+    forms::set_visibility([](const std::shared_ptr<Node>& node) {
+        return g_layout_tree && find_box_for_node(g_layout_tree, node) != nullptr;
+    });
+    forms::install_events(g_js_engine);
+
     js.add_function("print", js_console_log);
     js.add_function("__setStyleProperty", js_set_style_property);
     js.add_function("__setStylePropertyById", js_set_style_property_by_id);
     js.add_function("__setStylePropertyByAddr", js_set_style_property_by_addr);
     js.add_function("__querySelectorAll", js_query_selector_all);
     js.add_function("__getElementById", js_get_element_by_id);
+    js.add_function("__getValue", forms::js_get_value);
+    js.add_function("__setValue", forms::js_set_value);
+    js.add_function("__setAttribute", forms::js_set_attribute);
+    js.add_function("__removeAttribute", forms::js_remove_attribute);
+    js.add_function("__hasAttribute", forms::js_has_attribute);
+    js.add_function("__focusNode", forms::js_focus_node);
+    js.add_function("__openPicker", forms::js_open_picker);
+    js.add_function("__blurNode", forms::js_blur_node);
+    js.add_function("__getActiveElement", forms::js_get_active_element);
+    js.add_function("__preventDefault", forms::js_prevent_default);
     js.add_function("__createElement", js_create_element);
     js.add_function("__appendChild", js_append_child);
     js.add_function("__setTextContent", js_set_text_content);
@@ -295,6 +375,25 @@ int main(int argc, char** argv) {
         "    _addr: node._addr,"
         "    tagName: node.tagName,"
         "    getAttribute: (name) => __getAttribute(node._addr, name),"
+        "    setAttribute: (name, val) => __setAttribute(node._addr, name, String(val)),"
+        "    removeAttribute: (name) => __removeAttribute(node._addr, name),"
+        "    hasAttribute: (name) => __hasAttribute(node._addr, name),"
+        "    get value() { return __getValue(node._addr); },"
+        "    set value(val) { __setValue(node._addr, String(val)); },"
+        "    get valueAsNumber() { return parseFloat(__getValue(node._addr)); },"
+        "    get disabled() { return __hasAttribute(node._addr, 'disabled'); },"
+        "    set disabled(val) { if (val) __setAttribute(node._addr, 'disabled', ''); else __removeAttribute(node._addr, 'disabled'); },"
+        "    get min() { return __getAttribute(node._addr, 'min') || ''; },"
+        "    set min(val) { __setAttribute(node._addr, 'min', String(val)); },"
+        "    get max() { return __getAttribute(node._addr, 'max') || ''; },"
+        "    set max(val) { __setAttribute(node._addr, 'max', String(val)); },"
+        "    get step() { return __getAttribute(node._addr, 'step') || ''; },"
+        "    set step(val) { __setAttribute(node._addr, 'step', String(val)); },"
+        "    get placeholder() { return __getAttribute(node._addr, 'placeholder') || ''; },"
+        "    set placeholder(val) { __setAttribute(node._addr, 'placeholder', String(val)); },"
+        "    focus: () => __focusNode(node._addr),"
+        "    showPicker: () => __openPicker(node._addr),"
+        "    blur: () => __blurNode(),"
         "    get className() { return __getClassName(node._addr); },"
         "    set className(val) { __setClassName(node._addr, val); },"
         "    get textContent() { return __getTextContent(node._addr); },"
@@ -337,6 +436,10 @@ int main(int argc, char** argv) {
         "    const node = __createElement(tagName);"
         "    return document._wrap(node);"
         "  },"
+        "  get activeElement() {"
+        "    const node = __getActiveElement();"
+        "    return node ? document._wrap(node) : null;"
+        "  },"
         "  getElementById: (id) => {"
         "    const node = __getElementById(id);"
         "    return node ? document._wrap(node) : null;"
@@ -364,7 +467,7 @@ int main(int argc, char** argv) {
     // Load scripts
     std::vector<std::shared_ptr<ElementNode>> scripts;
     find_tags(dom, "script", scripts);
-    for (auto& script : scripts) {
+    if (!static_mode) for (auto& script : scripts) {
         if (script->data.attributes.count("src")) {
             std::string js_path = resolve_resource_path(html_base_dir, script->data.attributes.at("src"));
             std::string js_code = read_file(js_path);
@@ -380,19 +483,22 @@ int main(int argc, char** argv) {
         }
     }
 
-    js.execute("window.dispatchEvent('document', 'DOMContentLoaded', {});");
+    if (!static_mode) js.execute("window.dispatchEvent('document', 'DOMContentLoaded', {});");
 
     // 11. Main Loop
     int last_fbw = fbw;
     int last_fbh = fbh;
     std::shared_ptr<Node> prev_hovered_dom_node;
+    const double screenshot_start = get_platform_time();
 
     while (!window.should_close()) {
         // Handle Resize
         window.get_framebuffer_size(fbw, fbh);
-        if (fbw != last_fbw || fbh != last_fbh) {
+        bool viewport_changed = (fbw != last_fbw || fbh != last_fbh);
+        if (viewport_changed) {
             viewport.content = {0, 0, static_cast<float>(fbw), static_cast<float>(fbh)};
             Renderer::set_viewport(fbw, fbh);
+            stylesheet = CSSParser::parse(css, static_cast<float>(fbw), static_cast<float>(fbh));
             last_fbw = fbw;
             last_fbh = fbh;
         }
@@ -402,9 +508,8 @@ int main(int argc, char** argv) {
         auto& mouse_state = mouse_handler.get_state();
         auto current_hovered_dom_node = mouse_state.current_hovered_dom_node;
 
-        js.execute("if (window._run_raf) window._run_raf();");
+        if (!static_mode) js.execute("if (window._run_raf) window._run_raf();");
 
-        bool viewport_changed = (fbw != last_fbw || fbh != last_fbh);
         bool input_changed = (prev_hovered_dom_node != current_hovered_dom_node) || mouse_state.had_click_event;
         bool layout_affecting_animations = StyleEngine::has_layout_affecting_animations();
         bool needs_full_rebuild = viewport_changed || input_changed || layout_affecting_animations || g_dom_dirty || !g_style_tree || !g_layout_tree;
@@ -497,6 +602,16 @@ int main(int argc, char** argv) {
             }
         }
 
+        if (!screenshot_path.empty() && get_platform_time() - screenshot_start >= screenshot_delay) {
+            if (!layout_dump_path.empty() && g_layout_tree && !dump_layout(layout_dump_path, *g_layout_tree)) return 1;
+            if (!capture_frame(screenshot_path, fbw, fbh)) {
+                std::cerr << "Could not save screenshot: " << screenshot_path << std::endl;
+                return 1;
+            }
+            std::cout << "Screenshot: " << screenshot_path << std::endl;
+            log_event("screenshot", screenshot_path);
+            break;
+        }
         window.swap_buffers();
         window.poll_events();
     }
