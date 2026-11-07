@@ -24,9 +24,11 @@ public:
 
     static void key_callback(Window* window, Key key, int scancode, Action action, int mods);
     static void key_event_callback(Window* window, const KeyEvent& event);
+    static void text_callback(Window* window, uint32_t codepoint);
 
 private:
     JSEngine* js_engine_;
+    bool suppress_text_ = false;
 };
 
 } // namespace linweb

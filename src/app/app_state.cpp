@@ -2,6 +2,7 @@
 
 namespace linweb {
 
+std::string g_page_url;
 std::shared_ptr<Node> g_dom_root;
 std::shared_ptr<StyledNode> g_style_tree;
 std::shared_ptr<LayoutBox> g_layout_tree;

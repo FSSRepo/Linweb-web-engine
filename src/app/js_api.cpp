@@ -9,6 +9,7 @@
 #include "scripting/event_bindings.h"
 #include "scripting/layout_bindings.h"
 #include "scripting/media_bindings.h"
+#include "scripting/network_bindings.h"
 #include "scripting/style_bindings.h"
 #include "scripting/timer_bindings.h"
 #include "scripting/window_bindings.h"
@@ -40,6 +41,7 @@ void install_js_api(JSEngine& js, const std::shared_ptr<Node>& dom)
     install_layout_bindings(js);
     forms::install_bindings(js);
     install_event_bindings(js);
+    install_network_bindings(js);
     install_media_bindings(js);   // after the events: it listens to DOMContentLoaded and fires events at its elements
 }
 

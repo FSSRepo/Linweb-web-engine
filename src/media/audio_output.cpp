@@ -10,6 +10,7 @@
 #define MA_NO_GENERATION
 #define MA_NO_RESOURCE_MANAGER
 #define MA_NO_NODE_GRAPH
+#define MA_NO_NULL
 #define MINIAUDIO_IMPLEMENTATION
 #include "miniaudio/miniaudio.h"
 
@@ -62,7 +63,7 @@ public:
     }
 
     bool add(AudioOutput::Impl* source, std::string& error) {
-        std::lock_guard<std::mutex> guard(lock_);
+        std::lock_guard<std::mutex> lifecycle_guard(lifecycle_lock_);
         if (!device_ready_) {
             ma_device_config config = ma_device_config_init(ma_device_type_playback);
             config.playback.format = ma_format_f32;
@@ -83,14 +84,22 @@ public:
             }
             device_ready_ = true;
         }
-        sources_.push_back(source);
+        {
+            std::lock_guard<std::mutex> guard(lock_);
+            sources_.push_back(source);
+        }
         return true;
     }
 
     void remove(AudioOutput::Impl* source) {
-        std::lock_guard<std::mutex> guard(lock_);
-        sources_.erase(std::remove(sources_.begin(), sources_.end(), source), sources_.end());
-        if (sources_.empty() && device_ready_) {
+        std::lock_guard<std::mutex> lifecycle_guard(lifecycle_lock_);
+        bool empty;
+        {
+            std::lock_guard<std::mutex> guard(lock_);
+            sources_.erase(std::remove(sources_.begin(), sources_.end(), source), sources_.end());
+            empty = sources_.empty();
+        }
+        if (empty && device_ready_) {
             ma_device_uninit(&device_);
             device_ready_ = false;
             g_level = 0.0f;
@@ -156,6 +165,8 @@ private:
         }
     }
 
+    // Device start/stop may wait for the callback, which must be free to take lock_.
+    std::mutex lifecycle_lock_;
     std::mutex lock_;
     double low_pass_ = 0.0;     // state of the bass filter of the levels
     ma_device device_;

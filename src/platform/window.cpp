@@ -82,7 +82,13 @@ static void glfw_key_adapter(GLFWwindow* glfw_win, int key, int scancode, int ac
                       ((mods & GLFW_MOD_ALT) ? ModAlt : 0) | ((mods & GLFW_MOD_SUPER) ? ModMeta : 0);
     KeyEvent ev = make_key_event(a, scancode, linweb_mods, glfw_keysym(key, mods), glfw_keysym(key, 0));
     ev.key = map_glfw_key(key);
+    ev.text_from_platform = true;
     win->emit_key(ev);
+}
+
+static void glfw_text_adapter(GLFWwindow* glfw_win, unsigned int codepoint) {
+    Window* win = static_cast<Window*>(glfwGetWindowUserPointer(glfw_win));
+    if (win && win->get_text_callback()) win->get_text_callback()(win, codepoint);
 }
 
 static void glfw_mouse_button_adapter(GLFWwindow* glfw_win, int button, int action, int mods) {
@@ -202,6 +208,11 @@ void Window::set_scroll_callback(ScrollCallback callback) {
 void Window::set_key_callback(KeyCallback callback) {
     key_cb_ = callback;
     if (impl_->window) glfwSetKeyCallback(impl_->window, glfw_key_adapter);
+}
+
+void Window::set_text_callback(TextCallback callback) {
+    text_cb_ = callback;
+    if (impl_->window) glfwSetCharCallback(impl_->window, glfw_text_adapter);
 }
 
 void Window::set_mouse_button_callback(MouseButtonCallback callback) {

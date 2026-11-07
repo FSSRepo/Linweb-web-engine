@@ -465,76 +465,46 @@ static void draw_text_spaced(const std::string& text, float x, float y, float si
         glDisable(GL_DEPTH_TEST);
         RendererState::current_model = mat4_identity();
 
-        // Canvas background propagation: if html has no background, use body's if present
-        float canvas_r = 1.0f, canvas_g = 1.0f, canvas_b = 1.0f, canvas_a = 0.0f;
-        bool has_canvas_bg = false;
-        if (root->styled_node && root->styled_node->node && root->styled_node->node->type() == NodeType::Element)
-        {
-            std::string html_bg = root->styled_node->value("background-color");
-            if (html_bg.empty())
-                html_bg = root->styled_node->value("background");
-            bool html_has_bg = !html_bg.empty() && html_bg != "transparent";
-
-            if (is_shader_background(html_bg))
-            {
-                glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
-                glClear(GL_COLOR_BUFFER_BIT);
-                has_canvas_bg = true;
-            }
-
-            if (!html_has_bg)
-            {
-                for (const auto &child : root->children)
-                {
-                    if (child && child->styled_node && child->styled_node->node &&
-                        child->styled_node->node->type() == NodeType::Element &&
-                        std::static_pointer_cast<ElementNode>(child->styled_node->node)->tag_name == "body")
-                    {
-                        std::string body_bg = child->styled_node->value("background-color");
-                        if (body_bg.empty())
-                            body_bg = child->styled_node->value("background");
-                        if (!body_bg.empty() && body_bg != "transparent")
-                        {
-                            if (is_shader_background(body_bg))
-                            {
-                                glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
-                                glClear(GL_COLOR_BUFFER_BIT);
-                                has_canvas_bg = true;
-                            }
-                            else
-                            {
-                                Gradient body_grad = parse_gradient(body_bg);
-                                if (body_grad.type != GradientType::None)
-                                {
-                                    // Body has a gradient; let render_box draw it.
-                                    // Clear with a neutral color so areas outside the body
-                                    // don't show garbage.
-                                    glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
-                                    glClear(GL_COLOR_BUFFER_BIT);
-                                    has_canvas_bg = true;
-                                }
-                                else
-                                {
-                                    Color c = parse_color_str(body_bg);
-                                    canvas_r = c.r; canvas_g = c.g; canvas_b = c.b; canvas_a = c.a;
-                                    has_canvas_bg = true;
-                                    // Clear with body's background color
-                                    glClearColor(canvas_r, canvas_g, canvas_b, canvas_a);
-                                    glClear(GL_COLOR_BUFFER_BIT);
-                                }
-                            }
-                        }
-                        break;
-                    }
+        // The HTML parser wraps the document in a synthetic root. The canvas takes the html background, or the
+        // body background when html is transparent, including the space outside the element's own box.
+        std::shared_ptr<LayoutBox> html;
+        if (root->styled_node && root->styled_node->node && root->styled_node->node->tag_name == "html") html = root;
+        else {
+            for (const auto& child : root->children) {
+                if (child && child->styled_node && child->styled_node->node && child->styled_node->node->tag_name == "html") {
+                    html = child;
+                    break;
                 }
             }
         }
-
-        if (!has_canvas_bg)
-        {
-            glClearColor(1.0f, 1.0f, 1.0f, 1.0f);
-            glClear(GL_COLOR_BUFFER_BIT);
+        auto background = [](const std::shared_ptr<LayoutBox>& box) {
+            if (!box || !box->styled_node) return std::string();
+            std::string value = box->styled_node->value("background-color");
+            if (value.empty() || value == "transparent") value = box->styled_node->value("background");
+            return value;
+        };
+        std::string canvas = background(html);
+        if (html && (canvas.empty() || canvas == "transparent")) {
+            for (const auto& child : html->children) {
+                if (child && child->styled_node && child->styled_node->node && child->styled_node->node->tag_name == "body") {
+                    canvas = background(child);
+                    break;
+                }
+            }
         }
+        if (canvas.empty() || canvas == "transparent") {
+            glClearColor(1.0f, 1.0f, 1.0f, 1.0f);
+        } else if (is_shader_background(canvas)) {
+            glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+        } else if (parse_gradient(canvas).type != GradientType::None) {
+            // The element itself draws the gradient.
+            glClearColor(1.0f, 1.0f, 1.0f, 1.0f);
+        } else {
+            Color c = parse_color_str(canvas);
+            // The window canvas is opaque white behind a translucent CSS background.
+            glClearColor(c.r * c.a + 1.0f - c.a, c.g * c.a + 1.0f - c.a, c.b * c.a + 1.0f - c.a, 1.0f);
+        }
+        glClear(GL_COLOR_BUFFER_BIT);
 
         render_box(root, 1.0f, Filter());
         draw_form_overlays(root);
@@ -999,19 +969,32 @@ static void draw_text_spaced(const std::string& text, float x, float y, float si
                 const float spread = text_shadow.blur + combined_filter.blur;
                 const float shadow_x = box->dimensions.content.x - box->text_leading_trim + text_shadow.offsetX;
                 const float shadow_y = box->dimensions.content.y + y_offset + scaled_ascent + text_shadow.offsetY;
+                // a blurred shadow is the same picture on every frame: it is blurred once and kept (text_shadow_cache_*)
+                const std::string shadow_key = spread > 0.0f
+                    ? text_shadow_cache_key(shadow_text, font_size, is_bold, is_monospace, combined_filter.invert, custom,
+                                            text_shadow.r, text_shadow.g, text_shadow.b, text_shadow.a, spread * 0.5f, spacing)
+                    : std::string();
+                const float pad = spread * 1.5f + 4.0f;
+                const float left = std::min(box->dimensions.content.x - box->text_leading_trim, shadow_x) - pad;
+                const float top = std::min(box->dimensions.content.y, shadow_y - scaled_ascent) - pad;
+                const float right = std::max(box->dimensions.content.x - box->text_leading_trim + box->dimensions.content.width, shadow_x + box->dimensions.content.width) + pad;
+                const float bottom = std::max(box->dimensions.content.y + box->dimensions.content.height, shadow_y + font_height) + pad;
+                // near the edge of the window the blur reaches outside it: the shadow is made a little way in, so all of it is kept
+                float shift_x = 0.0f, shift_y = 0.0f;
+                const bool keepable = !shadow_key.empty() && text_shadow_cache_shift(left, top, right - left, bottom - top, spread * 0.5f, shift_x, shift_y);
                 GLint shadow_previous_framebuffer = 0;
-                if (text_shadow_layer_begin(shadow_previous_framebuffer)) {
+                if (!shadow_key.empty() && text_shadow_cache_draw(shadow_key, shadow_x, shadow_y, total_opacity)) {
+                    // drawn from the cache
+                } else if (text_shadow_layer_begin(shadow_previous_framebuffer)) {
                     // the glyphs go into the layer sharp; the blur is a separable gaussian with sigma = blur / 2 (CSS)
-                    draw_text_spaced(shadow_text, shadow_x, shadow_y, font_size, text_shadow.r, text_shadow.g, text_shadow.b, text_shadow.a, is_bold, 0.0f, combined_filter.invert, is_monospace, custom, spacing);
+                    draw_text_spaced(shadow_text, shadow_x + shift_x, shadow_y + shift_y, font_size, text_shadow.r, text_shadow.g, text_shadow.b, text_shadow.a, is_bold, 0.0f, combined_filter.invert, is_monospace, custom, spacing);
                     text_shadow_layer_end(shadow_previous_framebuffer);
-                    const float pad = spread * 1.5f + 4.0f;
-                    const float left = std::min(box->dimensions.content.x - box->text_leading_trim, shadow_x) - pad;
-                    const float top = std::min(box->dimensions.content.y, shadow_y - scaled_ascent) - pad;
-                    const float right = std::max(box->dimensions.content.x - box->text_leading_trim + box->dimensions.content.width, shadow_x + box->dimensions.content.width) + pad;
-                    const float bottom = std::max(box->dimensions.content.y + box->dimensions.content.height, shadow_y + font_height) + pad;
-                    if (spread > 0.0f)
-                        text_shadow_layer_blur_compose(left, top, right - left, bottom - top, spread * 0.5f, total_opacity);
-                    else
+                    if (spread > 0.0f) {
+                        if (keepable && text_shadow_cache_store(shadow_key, shadow_x + shift_x, shadow_y + shift_y, left + shift_x, top + shift_y, right - left, bottom - top, spread * 0.5f))
+                            text_shadow_cache_draw(shadow_key, shadow_x, shadow_y, total_opacity);
+                        else
+                            text_shadow_layer_blur_compose(left + shift_x, top + shift_y, right - left, bottom - top, spread * 0.5f, total_opacity);
+                    } else
                         text_shadow_layer_compose(left, top, right - left, bottom - top, total_opacity);
                 } else {
                     draw_text_spaced(shadow_text, shadow_x, shadow_y, font_size, text_shadow.r, text_shadow.g, text_shadow.b, text_shadow.a * total_opacity, is_bold, spread, combined_filter.invert, is_monospace, custom, spacing);

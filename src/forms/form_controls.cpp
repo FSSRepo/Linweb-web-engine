@@ -606,7 +606,7 @@ bool handle_key(const Key& k) {
         if (k.key == "End") { caret_end(node); return true; }
         if (k.key == "Enter") { commit(node); return true; }
         unsigned char first = k.key.empty() ? 0 : static_cast<unsigned char>(k.key[0]);
-        if (!k.alt && count_code_points(k.key) == 1 && first >= 0x20 && first != 0x7f) {
+        if (!k.text_from_platform && !k.alt && count_code_points(k.key) == 1 && first >= 0x20 && first != 0x7f) {
             insert_text(node, k.key);
             return true;
         }
@@ -654,6 +654,12 @@ bool handle_key(const Key& k) {
         if (k.key == "End") { range_to(node, spec.max); return true; }
     }
     return false;
+}
+
+bool handle_text(const std::string& text) {
+    auto node = focus_slot();
+    if (!node || kind_of(*node) != Kind::Text || text.empty()) return false;
+    return insert_text(node, text);
 }
 
 // ---- drawing -----------------------------------------------------------------------------------------------------

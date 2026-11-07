@@ -28,6 +28,7 @@ struct KeyEvent {
     std::string code;            // DOM "code": "KeyA", "Digit1", "ShiftLeft"...
     int keyCode = 0;             // DOM legacy keyCode (65 for A, 13 for Enter...)
     bool repeat = false;
+    bool text_from_platform = false; // printable text arrives separately through the platform input callback
     std::string source;          // "" for a keyboard; "hat" (D-pad) or "stick" for the keys a gamepad makes
 };
 

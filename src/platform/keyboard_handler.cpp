@@ -26,6 +26,9 @@ void KeyboardHandler::setup(Window* window) {
     if (window) {
         window->set_key_callback(key_callback);
         window->set_key_event_callback(key_event_callback);
+#if !defined(WESTON_PLATFORM) && !defined(XORG_PLATFORM)
+        window->set_text_callback(text_callback);
+#endif
     }
 }
 
@@ -89,15 +92,24 @@ void KeyboardHandler::handle_key_event(Window*, const KeyEvent& ev) {
     g_js_engine->dispatch_event("window", type, data);
 
     // default action of the key on the focused form control, unless a script called preventDefault()
-    if (ev.action != Action::Release && !forms::take_default_prevented()) {
+    bool prevented = forms::take_default_prevented();
+    if (ev.action != Action::Release && ev.text_from_platform) suppress_text_ = prevented;
+    if (ev.action != Action::Release && !prevented) {
         forms::Key key;
         key.key = ev.name;
         key.ctrl = (ev.mods & ModControl) != 0;
         key.alt = (ev.mods & ModAlt) != 0;
         key.shift = (ev.mods & ModShift) != 0;
         key.meta = (ev.mods & ModMeta) != 0;
+        key.text_from_platform = ev.text_from_platform;
         forms::handle_key(key);
     }
+}
+
+void KeyboardHandler::text_callback(Window*, uint32_t codepoint) {
+    if (!g_keyboard_handler_instance || g_keyboard_handler_instance->suppress_text_) return;
+    if (codepoint < 0x20 || codepoint == 0x7f || codepoint > 0x10ffff || (codepoint >= 0xd800 && codepoint <= 0xdfff)) return;
+    forms::handle_text(utf8_from_codepoint(codepoint));
 }
 
 void KeyboardHandler::key_event_callback(Window* window, const KeyEvent& event) {

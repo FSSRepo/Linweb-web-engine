@@ -38,6 +38,7 @@ Object.assign(__window, {
   // The pump the main loop calls once per frame: animation callbacks first, then at most one run of every timer that
   // is due. A repeating timer is rescheduled from now, so a slow frame never queues up several late runs.
   _run_raf: () => {
+    if (window._pump_network) window._pump_network();
     const now = Date.now();
     const raf = window._raf_callbacks;
     window._raf_callbacks = [];

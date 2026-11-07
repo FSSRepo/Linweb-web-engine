@@ -1,4 +1,5 @@
 #pragma once
+#include <functional>
 #include <map>
 #include <memory>
 #include <string>
@@ -25,6 +26,13 @@ public:
     HttpClient& operator=(const HttpClient&) = delete;
     // `headers` are added to the request (a Range for example); a 206 Partial Content answer is a success.
     HttpResponse get(const std::string& url, const std::map<std::string, std::string>& headers = {});
+    // Any method with a body (fetch, XMLHttpRequest). Returns the final answer whatever its status; redirects are followed.
+    HttpResponse request(const std::string& method, const std::string& url, const std::map<std::string, std::string>& headers = {},
+                         const std::string& body = "");
+    // An open-ended answer (text/event-stream). on_head gets the status and headers (a non-2xx status throws); on_data gets
+    // each piece of the body as it arrives, and returns false to stop. Redirects are not followed.
+    void stream(const std::string& url, const std::map<std::string, std::string>& headers,
+                const std::function<void(const HttpResponse&)>& on_head, const std::function<bool(const std::string&)>& on_data);
 private:
     struct Impl;
     std::unique_ptr<Impl> impl_;

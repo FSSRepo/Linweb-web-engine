@@ -60,6 +60,8 @@ void rebuild_page(const std::shared_ptr<Node>& dom, const StyleSheet& stylesheet
     if (g_layout_tree) {
         apply_scroll_states(g_layout_tree);
         g_layout_tree->layout(viewport);
+        // A cached layout can restore old scroll offsets along with descendant geometry.
+        apply_scroll_states(g_layout_tree);
         tp3 = get_platform_time();
         if (log_enabled()) log_layout_snapshot(*g_layout_tree);
     }

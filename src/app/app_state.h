@@ -12,6 +12,7 @@ namespace linweb {
 
 // What the page, the input handlers and the debug views share. Each one is written by the main loop (or by a script,
 // through the bindings) and read by the others.
+extern std::string g_page_url;
 extern std::shared_ptr<Node> g_dom_root;
 extern std::shared_ptr<StyledNode> g_style_tree;
 extern std::shared_ptr<LayoutBox> g_layout_tree;

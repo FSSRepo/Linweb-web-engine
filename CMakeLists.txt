@@ -28,7 +28,7 @@ file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/linweb_ca.c"
     "const unsigned char linweb_ca_pem[] = {${LINWEB_CA_ARRAY}0x00};\nconst unsigned long linweb_ca_pem_len = sizeof(linweb_ca_pem) - 1;\n")
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${LINWEB_CA_FILE}")
 
-add_library(linweb_network STATIC src/network/http_client.cpp src/network/page_downloader.cpp
+add_library(linweb_network STATIC src/network/http_client.cpp src/network/page_downloader.cpp src/network/net_events.cpp
     "${CMAKE_CURRENT_BINARY_DIR}/linweb_ca.c")
 target_include_directories(linweb_network PUBLIC src)
 target_link_libraries(linweb_network PUBLIC linweb_mbedtls)
@@ -146,6 +146,7 @@ set(LINWEB_SOURCES
     src/scripting/style_bindings.cpp
     src/scripting/event_bindings.cpp
     src/scripting/timer_bindings.cpp
+    src/scripting/network_bindings.cpp
     src/scripting/console_bindings.cpp
     src/scripting/layout_bindings.cpp
     src/scripting/window_bindings.cpp

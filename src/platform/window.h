@@ -11,6 +11,7 @@ class Window;
 using ScrollCallback = void (*)(Window*, double xoffset, double yoffset);
 using KeyCallback = void (*)(Window*, Key key, int scancode, Action action, int mods);
 using KeyEventCallback = void (*)(Window*, const KeyEvent& event);
+using TextCallback = void (*)(Window*, uint32_t codepoint);
 using MouseButtonCallback = void (*)(Window*, MouseButton button, Action action, int mods);
 using CursorPosCallback = void (*)(Window*, double x, double y);
 
@@ -33,6 +34,7 @@ public:
 
     void set_scroll_callback(ScrollCallback callback);
     void set_key_callback(KeyCallback callback);
+    void set_text_callback(TextCallback callback);
     void set_key_event_callback(KeyEventCallback callback) { key_event_cb_ = callback; }
     void set_mouse_button_callback(MouseButtonCallback callback);
     void set_cursor_pos_callback(CursorPosCallback callback);
@@ -40,6 +42,7 @@ public:
     ScrollCallback get_scroll_callback() const { return scroll_cb_; }
     KeyCallback get_key_callback() const { return key_cb_; }
     KeyEventCallback get_key_event_callback() const { return key_event_cb_; }
+    TextCallback get_text_callback() const { return text_cb_; }
 
     // Delivers a keyboard event to the handlers: the built-in shortcuts (legacy callback)
     // and the full DOM-style event.
@@ -67,6 +70,7 @@ private:
     ScrollCallback scroll_cb_;
     KeyCallback key_cb_;
     KeyEventCallback key_event_cb_ = nullptr;
+    TextCallback text_cb_ = nullptr;
     MouseButtonCallback mouse_btn_cb_;
     CursorPosCallback cursor_pos_cb_;
 };

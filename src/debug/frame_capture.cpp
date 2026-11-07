@@ -2,7 +2,6 @@
 #include "gl_wrapper.h"
 #include <algorithm>
 #include <cctype>
-#include <cstdint>
 #include <fstream>
 #include <string>
 #include <vector>
@@ -40,23 +39,10 @@ bool capture_frame(const std::string& path, int width, int height) {
         stbi_flip_vertically_on_write(1);
         return stbi_write_png(path.c_str(), width, height, 3, pixels.data(), width * 3) != 0;
     }
-    std::ofstream out(path, std::ios::binary);
-    if (!out) return false;
-    uint32_t stride = (static_cast<uint32_t>(width) * 3 + 3) & ~3u;
-    uint32_t bytes = stride * height;
-    auto word = [&](uint32_t value, int count) {
-        for (int i = 0; i < count; ++i) out.put(static_cast<char>(value >> (8 * i)));
-    };
-    out.write("BM", 2); word(54 + bytes, 4); word(0, 4); word(54, 4);
-    word(40, 4); word(width, 4); word(height, 4); word(1, 2); word(24, 2);
-    word(0, 4); word(bytes, 4); word(2835, 4); word(2835, 4); word(0, 4); word(0, 4);
-    for (int y = 0; y < height; ++y) {
-        for (int x = 0; x < width; ++x) {
-            size_t index = (static_cast<size_t>(y) * width + x) * 3;
-            out.put(pixels[index + 2]); out.put(pixels[index + 1]); out.put(pixels[index]);
-        }
-        for (uint32_t pad = width * 3; pad < stride; ++pad) out.put(0);
+    if (extension == ".jpg" || (path.size() >= 5 && extension == "jpeg" && path[path.size() - 5] == '.')) {
+        stbi_flip_vertically_on_write(1);
+        return stbi_write_jpg(path.c_str(), width, height, 3, pixels.data(), 90) != 0;
     }
-    return out.good();
+    return false;
 }
 }

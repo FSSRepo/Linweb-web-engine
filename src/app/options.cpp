@@ -1,5 +1,6 @@
 #include "app/options.h"
 #include <algorithm>
+#include <cctype>
 #include <iostream>
 #include <sstream>
 #include "utils/file_utils.h"
@@ -63,6 +64,12 @@ bool parse_options(int argc, char** argv, Options& options)
             options.static_mode = true;
         } else if (arg.compare(0, 13, "--screenshot=") == 0) {
             options.screenshot_path = arg.substr(13);
+            std::string extension = options.screenshot_path.substr(options.screenshot_path.find_last_of('.') == std::string::npos ? options.screenshot_path.size() : options.screenshot_path.find_last_of('.'));
+            std::transform(extension.begin(), extension.end(), extension.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+            if (extension != ".png" && extension != ".jpg" && extension != ".jpeg") {
+                std::cerr << "Screenshot format must be PNG or JPEG (.png, .jpg, .jpeg)\n";
+                return false;
+            }
             options.static_mode = true;
         } else if (arg == "--debug") {
             options.debug_mode = DebugType::Element;

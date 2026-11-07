@@ -1,5 +1,6 @@
 #include "gl_wrapper.h"
 #include <algorithm>
+#include <filesystem>
 #include <cctype>
 #include <iostream>
 #include <chrono>
@@ -94,6 +95,7 @@ int linweb::run(int argc, char** argv) {
     StartupTimes times;
     times.start = StartupTimes::Clock::now();
 
+    g_page_url = is_http_url(html_file) ? html_file : "file:///" + std::filesystem::absolute(html_file).generic_string();
     if (is_http_url(html_file)) {
         // a URL is downloaded with its files into memory (nothing is written to disk), and the page is loaded from there
         const std::string directory = memory_files::new_directory();

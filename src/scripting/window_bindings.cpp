@@ -23,6 +23,7 @@ const __window = { _listeners: {} };
 const window = new Proxy(__window, { set(target, key, value) { target[key] = value; globalThis[key] = value; return true; } });
 // read from the renderer on every access, so a resized window reports the new size
 Object.defineProperties(__window, {
+  JSON: { get: () => globalThis.JSON, set: value => { globalThis.JSON = value; }, configurable: true },
   innerWidth: { get: () => __viewportWidth(), configurable: true },
   innerHeight: { get: () => __viewportHeight(), configurable: true }
 });

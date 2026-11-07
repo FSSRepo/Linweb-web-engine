@@ -84,9 +84,12 @@ bool focus_next(bool backwards);
 struct Key {
     std::string key;   // DOM key name: "a", "€", "Backspace", "ArrowLeft", ...
     bool ctrl = false, alt = false, shift = false, meta = false;
+    bool text_from_platform = false;
 };
 // The default action of a key press on the focused control. Returns true when the control used the key.
 bool handle_key(const Key& key);
+// Text composed by the operating system, independent of the keyboard layout.
+bool handle_text(const std::string& text);
 
 // ---- text editing (also used by handle_key) ---------------------------------------------------------------------
 bool insert_text(const std::shared_ptr<Node>& node, const std::string& text);

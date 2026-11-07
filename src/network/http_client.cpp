@@ -140,6 +140,45 @@ struct Connection {
     Connection() { mbedtls_net_init(&net); mbedtls_ssl_init(&ssl); }
     ~Connection() { mbedtls_ssl_free(&ssl); mbedtls_net_free(&net); }
 };
+// The status line and the headers of a response, without the blank line that ends them.
+void parse_head(const std::string& head, HttpResponse& response) {
+    std::istringstream headers(head);
+    std::string version, line;
+    headers >> version >> response.status;
+    if (version.compare(0, 5, "HTTP/") != 0 || response.status < 100 || response.status > 599)
+        throw std::runtime_error("Invalid HTTP status line");
+    std::getline(headers, line);
+    while (std::getline(headers, line)) {
+        size_t colon = line.find(':');
+        if (colon == std::string::npos) throw std::runtime_error("Malformed HTTP header");
+        response.headers[lower(trim(line.substr(0, colon)))] = trim(line.substr(colon + 1));
+    }
+}
+// Passes on the body bytes that are complete, and takes them out of `pending`. Returns false when on_data asked to stop;
+// `ended` is set by the last (empty) chunk of a chunked body.
+bool deliver(std::string& pending, bool chunked, bool& ended, const std::function<bool(const std::string&)>& on_data) {
+    if (!chunked) {
+        if (pending.empty()) return true;
+        std::string data;
+        data.swap(pending);
+        return on_data(data);
+    }
+    while (true) {
+        size_t eol = pending.find("\r\n");
+        if (eol == std::string::npos) return true;
+        std::string line = pending.substr(0, eol);
+        size_t length = number(trim(line.substr(0, line.find(';'))), 16);
+        if (length == 0) {
+            ended = true;
+            pending.clear();
+            return true;
+        }
+        if (pending.size() < eol + 2 + length + 2) return true;
+        std::string data = pending.substr(eol + 2, length);
+        pending.erase(0, eol + 2 + length + 2);
+        if (!on_data(data)) return false;
+    }
+}
 } // namespace
 
 bool is_http_url(const std::string& url) {
@@ -223,9 +262,10 @@ struct HttpClient::Impl {
         mbedtls_ssl_conf_read_timeout(&config, timeout_ms);
         mbedtls_ssl_conf_min_tls_version(&config, MBEDTLS_SSL_VERSION_TLS1_2);
     }
-    HttpResponse request(const std::string& url, const std::map<std::string, std::string>& extra_headers) {
+    // Connects, runs the TLS handshake and sends the request with its headers and body.
+    Url open(const std::string& method, const std::string& url, const std::map<std::string, std::string>& extra_headers,
+             const std::string& body, Connection& conn) {
         Url u = parse_url(url);
-        Connection conn;
         check(mbedtls_net_connect(&conn.net, connect_address(u.host).c_str(), u.port.c_str(), MBEDTLS_NET_PROTO_TCP), "TCP connection");
         bool tls = u.scheme == "https";
         if (tls) {
@@ -242,14 +282,16 @@ struct HttpClient::Impl {
             }
             check(rc, "TLS handshake");
         }
-        std::string request = "GET " + u.target + " HTTP/1.1\r\nHost: " + u.authority +
+        std::string request = method + " " + u.target + " HTTP/1.1\r\nHost: " + u.authority +
             "\r\nUser-Agent: Linweb/0.1\r\nAccept: */*\r\nAccept-Encoding: identity\r\nConnection: close\r\n";
         for (const auto& header : extra_headers) {
             if (header.first.find_first_of("\r\n:") != std::string::npos || header.second.find_first_of("\r\n") != std::string::npos)
                 throw std::runtime_error("Invalid request header");
             request += header.first + ": " + header.second + "\r\n";
         }
-        request += "\r\n";
+        if (!body.empty() || method == "POST" || method == "PUT")
+            request += "Content-Length: " + std::to_string(body.size()) + "\r\n";
+        request += "\r\n" + body;
         size_t sent = 0;
         while (sent < request.size()) {
             auto data = reinterpret_cast<const unsigned char*>(request.data() + sent);
@@ -260,6 +302,14 @@ struct HttpClient::Impl {
             if (rc == 0) throw std::runtime_error("Connection closed while sending request");
             sent += rc;
         }
+        return u;
+    }
+
+    HttpResponse request(const std::string& method, const std::string& url, const std::map<std::string, std::string>& extra_headers,
+                         const std::string& body) {
+        Connection conn;
+        Url u = open(method, url, extra_headers, body, conn);
+        const bool tls = u.scheme == "https";
         HttpResponse response;
         response.url = u.origin() + u.target;
         std::string received, raw_body;
@@ -335,25 +385,86 @@ struct HttpClient::Impl {
         }
         return response;
     }
+
+    void stream(const std::string& url, const std::map<std::string, std::string>& extra_headers,
+                const std::function<void(const HttpResponse&)>& on_head, const std::function<bool(const std::string&)>& on_data) {
+        Connection conn;
+        Url u = open("GET", url, extra_headers, "", conn);
+        const bool tls = u.scheme == "https";
+        std::string received, pending;
+        bool have_head = false, chunked = false, ended = false;
+        while (!ended) {
+            unsigned char buffer[16384];
+            int rc = tls ? mbedtls_ssl_read(&conn.ssl, buffer, sizeof(buffer)) :
+                mbedtls_net_recv_timeout(&conn.net, buffer, sizeof(buffer), timeout_ms);
+            // an idle stream stays open: a timeout is not the end of it
+            if (rc == MBEDTLS_ERR_SSL_WANT_READ || rc == MBEDTLS_ERR_SSL_WANT_WRITE || rc == MBEDTLS_ERR_SSL_TIMEOUT) continue;
+            if (rc == MBEDTLS_ERR_SSL_PEER_CLOSE_NOTIFY) rc = 0;
+            check(rc, "HTTP read");
+            if (rc == 0) break;
+            if (!have_head) {
+                received.append(reinterpret_cast<char*>(buffer), rc);
+                size_t end = received.find("\r\n\r\n");
+                if (end == std::string::npos) {
+                    if (received.size() > max_headers) throw std::runtime_error("HTTP headers too large");
+                    continue;
+                }
+                HttpResponse response;
+                response.url = u.origin() + u.target;
+                parse_head(received.substr(0, end), response);
+                if (response.status < 200 || response.status >= 300)
+                    throw std::runtime_error("HTTP " + std::to_string(response.status) + " for " + response.url);
+                auto encoding = response.headers.find("content-encoding");
+                if (encoding != response.headers.end() && lower(encoding->second) != "identity")
+                    throw std::runtime_error("Unsupported Content-Encoding: " + encoding->second + " (requested identity)");
+                auto transfer = response.headers.find("transfer-encoding");
+                if (transfer != response.headers.end()) {
+                    if (lower(transfer->second) != "chunked") throw std::runtime_error("Unsupported Transfer-Encoding");
+                    chunked = true;
+                }
+                on_head(response);
+                pending = received.substr(end + 4);
+                have_head = true;
+            } else {
+                pending.append(reinterpret_cast<char*>(buffer), rc);
+            }
+            if (!deliver(pending, chunked, ended, on_data)) return;
+        }
+    }
 };
 
 HttpClient::HttpClient() : impl_(std::make_unique<Impl>()) { impl_->init(); }
 HttpClient::~HttpClient() = default;
-HttpResponse HttpClient::get(const std::string& url, const std::map<std::string, std::string>& headers) {
+HttpResponse HttpClient::request(const std::string& method, const std::string& url, const std::map<std::string, std::string>& headers,
+                                 const std::string& body) {
     std::string current = resolve_url(url, "");
+    std::string verb = method, payload = body;
     for (int redirects = 0; redirects <= 10; ++redirects) {
-        HttpResponse response = impl_->request(current, headers);
+        HttpResponse response = impl_->request(verb, current, headers, payload);
         if (response.status == 301 || response.status == 302 || response.status == 303 ||
             response.status == 307 || response.status == 308) {
             auto location = response.headers.find("location");
             if (location == response.headers.end()) throw std::runtime_error("Redirect without Location header");
+            // a redirected POST is asked again with GET, as browsers do; 307 and 308 keep the method and the body
+            if (response.status == 303 || ((response.status == 301 || response.status == 302) && verb == "POST")) {
+                verb = "GET";
+                payload.clear();
+            }
             current = resolve_url(response.url, location->second);
         } else {
-            if (response.status < 200 || response.status >= 300)
-                throw std::runtime_error("HTTP " + std::to_string(response.status) + " for " + response.url);
             return response;
         }
     }
     throw std::runtime_error("Too many HTTP redirects (maximum 10)");
+}
+HttpResponse HttpClient::get(const std::string& url, const std::map<std::string, std::string>& headers) {
+    HttpResponse response = request("GET", url, headers);
+    if (response.status < 200 || response.status >= 300)
+        throw std::runtime_error("HTTP " + std::to_string(response.status) + " for " + response.url);
+    return response;
+}
+void HttpClient::stream(const std::string& url, const std::map<std::string, std::string>& headers,
+                        const std::function<void(const HttpResponse&)>& on_head, const std::function<bool(const std::string&)>& on_data) {
+    impl_->stream(resolve_url(url, ""), headers, on_head, on_data);
 }
 } // namespace linweb

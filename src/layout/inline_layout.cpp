@@ -101,12 +101,22 @@ namespace linweb
                 child_width = child->dimensions.content.width;
             }
 
-            child_width += LayoutEngine::parse_px(child->styled_node->value("margin-left"), available_width) +
+            if (child_w_str.empty() && child->box_type == BoxType::InlineBlock) {
+                Dimensions measure = container_dimensions;
+                measure.content.x = dimensions.content.x;
+                measure.content.width = available_width;
+                child->layout(measure);
+                child_width = child->dimensions.content.width + child->dimensions.padding.left + child->dimensions.padding.right +
+                              child->dimensions.border.left + child->dimensions.border.right +
+                              child->dimensions.margin.left + child->dimensions.margin.right;
+            } else {
+                child_width += LayoutEngine::parse_px(child->styled_node->value("margin-left"), available_width) +
                            LayoutEngine::parse_px(child->styled_node->value("margin-right"), available_width) +
                            LayoutEngine::parse_px(child->styled_node->value("padding-left"), available_width) +
                            LayoutEngine::parse_px(child->styled_node->value("padding-right"), available_width) +
                            LayoutEngine::parse_px(child->styled_node->value("border-left-width"), available_width) +
                            LayoutEngine::parse_px(child->styled_node->value("border-right-width"), available_width);
+            }
         }
 
         Dimensions child_container;
