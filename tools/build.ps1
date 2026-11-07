@@ -24,7 +24,7 @@ while ($true) {
 }
 try {
     Set-Location $root
-    $out = cmake --build $BuildDir --config Release --target $Target 2>&1
+    $out = cmake --build $BuildDir --config Release --target $Target --parallel 8 2>&1
     $problems = $out | Select-String -Pattern ' error |fatal error|: error C|undefined reference|LNK[0-9]+' | ForEach-Object { $_.Line.Trim() }
     if ($problems) { $problems | Select-Object -First 40; Write-Output "BUILD FAILED ($Target)"; exit 1 }
     Write-Output "BUILD OK ($Target)"
