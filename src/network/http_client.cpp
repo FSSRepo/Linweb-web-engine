@@ -8,6 +8,7 @@
 #include "psa/crypto.h"
 #include <algorithm>
 #include <cctype>
+#include <cstdlib>
 #include <limits>
 #include <sstream>
 #include <stdexcept>
@@ -166,20 +167,46 @@ std::string resolve_url(const std::string& base, const std::string& reference) {
     return u.origin() + normalize_path(path);
 }
 
+// LINWEB_RESOLVE=name=address[,name=address] connects to that address when the URL names that host (like curl --resolve):
+// a name that no DNS knows, in a test network. The certificate is still checked against the name of the URL.
+std::string connect_address(const std::string& host) {
+    const char* list = std::getenv("LINWEB_RESOLVE");
+    if (!list) return host;
+    std::stringstream entries(list);
+    for (std::string entry; std::getline(entries, entry, ',');) {
+        const size_t equals = entry.find('=');
+        if (equals != std::string::npos && lower(trim(entry.substr(0, equals))) == lower(host)) return trim(entry.substr(equals + 1));
+    }
+    return host;
+}
+
+// The bundled root certificates are parsed once for the whole process (it takes seconds), and shared, read only, by every
+// client: a player that streams a file opens several.
+mbedtls_x509_crt& shared_roots() {
+    static mbedtls_x509_crt roots;
+    static const int parsed = [] {
+        mbedtls_x509_crt_init(&roots);
+        int result = mbedtls_x509_crt_parse(&roots, linweb_ca_pem, linweb_ca_pem_len + 1);
+        // LINWEB_CA_FILE=file.pem trusts one more certificate (a self-signed server of a test network, for example)
+        const char* extra = std::getenv("LINWEB_CA_FILE");
+        if (result == 0 && extra && *extra) result = mbedtls_x509_crt_parse_file(&roots, extra);
+        return result;
+    }();
+    if (parsed != 0) throw std::runtime_error("Could not load all bundled CA certificates");
+    return roots;
+}
+
 struct HttpClient::Impl {
     mbedtls_entropy_context entropy;
     mbedtls_ctr_drbg_context random;
-    mbedtls_x509_crt ca;
     mbedtls_ssl_config config;
     Impl() {
         mbedtls_entropy_init(&entropy);
         mbedtls_ctr_drbg_init(&random);
-        mbedtls_x509_crt_init(&ca);
         mbedtls_ssl_config_init(&config);
     }
     ~Impl() {
         mbedtls_ssl_config_free(&config);
-        mbedtls_x509_crt_free(&ca);
         mbedtls_ctr_drbg_free(&random);
         mbedtls_entropy_free(&entropy);
     }
@@ -187,20 +214,19 @@ struct HttpClient::Impl {
         if (psa_crypto_init() != PSA_SUCCESS) throw std::runtime_error("PSA crypto initialization failed");
         const unsigned char seed[] = "linweb-http";
         check(mbedtls_ctr_drbg_seed(&random, mbedtls_entropy_func, &entropy, seed, sizeof(seed) - 1), "Random generator");
-        int parsed = mbedtls_x509_crt_parse(&ca, linweb_ca_pem, linweb_ca_pem_len + 1);
-        if (parsed != 0) throw std::runtime_error("Could not load all bundled CA certificates");
+        mbedtls_x509_crt& roots = shared_roots();
         check(mbedtls_ssl_config_defaults(&config, MBEDTLS_SSL_IS_CLIENT, MBEDTLS_SSL_TRANSPORT_STREAM,
               MBEDTLS_SSL_PRESET_DEFAULT), "TLS configuration");
         mbedtls_ssl_conf_authmode(&config, MBEDTLS_SSL_VERIFY_REQUIRED);
-        mbedtls_ssl_conf_ca_chain(&config, &ca, nullptr);
+        mbedtls_ssl_conf_ca_chain(&config, &roots, nullptr);
         mbedtls_ssl_conf_rng(&config, mbedtls_ctr_drbg_random, &random);
         mbedtls_ssl_conf_read_timeout(&config, timeout_ms);
         mbedtls_ssl_conf_min_tls_version(&config, MBEDTLS_SSL_VERSION_TLS1_2);
     }
-    HttpResponse request(const std::string& url) {
+    HttpResponse request(const std::string& url, const std::map<std::string, std::string>& extra_headers) {
         Url u = parse_url(url);
         Connection conn;
-        check(mbedtls_net_connect(&conn.net, u.host.c_str(), u.port.c_str(), MBEDTLS_NET_PROTO_TCP), "TCP connection");
+        check(mbedtls_net_connect(&conn.net, connect_address(u.host).c_str(), u.port.c_str(), MBEDTLS_NET_PROTO_TCP), "TCP connection");
         bool tls = u.scheme == "https";
         if (tls) {
             check(mbedtls_ssl_setup(&conn.ssl, &config), "TLS setup");
@@ -217,7 +243,13 @@ struct HttpClient::Impl {
             check(rc, "TLS handshake");
         }
         std::string request = "GET " + u.target + " HTTP/1.1\r\nHost: " + u.authority +
-            "\r\nUser-Agent: Linweb/0.1\r\nAccept: */*\r\nAccept-Encoding: identity\r\nConnection: close\r\n\r\n";
+            "\r\nUser-Agent: Linweb/0.1\r\nAccept: */*\r\nAccept-Encoding: identity\r\nConnection: close\r\n";
+        for (const auto& header : extra_headers) {
+            if (header.first.find_first_of("\r\n:") != std::string::npos || header.second.find_first_of("\r\n") != std::string::npos)
+                throw std::runtime_error("Invalid request header");
+            request += header.first + ": " + header.second + "\r\n";
+        }
+        request += "\r\n";
         size_t sent = 0;
         while (sent < request.size()) {
             auto data = reinterpret_cast<const unsigned char*>(request.data() + sent);
@@ -307,10 +339,10 @@ struct HttpClient::Impl {
 
 HttpClient::HttpClient() : impl_(std::make_unique<Impl>()) { impl_->init(); }
 HttpClient::~HttpClient() = default;
-HttpResponse HttpClient::get(const std::string& url) {
+HttpResponse HttpClient::get(const std::string& url, const std::map<std::string, std::string>& headers) {
     std::string current = resolve_url(url, "");
     for (int redirects = 0; redirects <= 10; ++redirects) {
-        HttpResponse response = impl_->request(current);
+        HttpResponse response = impl_->request(current, headers);
         if (response.status == 301 || response.status == 302 || response.status == 303 ||
             response.status == 307 || response.status == 308) {
             auto location = response.headers.find("location");

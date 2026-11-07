@@ -11,6 +11,10 @@ namespace forms {
 // the element (by address, id and class, like the mouse events) with { type, value, target: { value, id } }.
 void install_events(JSEngine* js);
 
+// Registers the native functions behind the form controls, gives every element value, focus(), blur(), setAttribute() and
+// the like, and document.activeElement, and connects the control events (install_events). Needs the document bindings.
+void install_bindings(JSEngine& js);
+
 // True once when a script called preventDefault() since the last call, so the engine can skip the default action
 // (typing into a control, Tab).
 bool take_default_prevented();

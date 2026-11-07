@@ -31,6 +31,7 @@ static Key map_glfw_key(int glfw_key) {
         case GLFW_KEY_LEFT_ALT: return Key::LeftAlt;
         case GLFW_KEY_RIGHT_ALT: return Key::RightAlt;
         case GLFW_KEY_F2: return Key::F2;
+        case GLFW_KEY_F3: return Key::F3;
         default: return Key::Unknown;
     }
 }

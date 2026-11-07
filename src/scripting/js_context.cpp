@@ -39,7 +39,27 @@ bool JSContextWrapper::evaluate(const std::string& code, const std::string& file
     }
 
     JS_FreeValue(ctx, val);
+    run_pending_jobs();
     return success;
+}
+
+void JSContextWrapper::run_pending_jobs() {
+    if (!ctx) return;
+    JSRuntime* rt = JS_GetRuntime(ctx);
+    JSContext* job_ctx = nullptr;
+    for (;;) {
+        int status = JS_ExecutePendingJob(rt, &job_ctx);
+        if (status > 0) continue;
+        if (status < 0) {
+            JSValue exception = JS_GetException(job_ctx ? job_ctx : ctx);
+            const char* msg = JS_ToCString(ctx, exception);
+            std::cerr << "JS Error (promise): " << (msg ? msg : "?") << std::endl;
+            if (msg) JS_FreeCString(ctx, msg);
+            JS_FreeValue(ctx, exception);
+            continue;
+        }
+        break;
+    }
 }
 
 void JSContextWrapper::register_function(const std::string& name, JSCFunction* func) {
@@ -72,6 +92,7 @@ bool JSContextWrapper::call_function(const std::string& name) {
 
     JS_FreeValue(ctx, func);
     JS_FreeValue(ctx, global_obj);
+    run_pending_jobs();
     return success;
 }
 

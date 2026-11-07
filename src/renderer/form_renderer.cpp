@@ -46,7 +46,8 @@ void draw_text_input(const std::shared_ptr<LayoutBox>& box, const std::shared_pt
     float top = c.y + (c.height - line_h) / 2.0f;
     float baseline = top + RendererState::font_ascent_px * scale;
 
-    if (view.password) {
+    // the placeholder of a password field is plain text; only typed characters are masked
+    if (view.password && !view.placeholder) {
         // a dot per character instead of a text of asterisks
         float advance = Renderer::measure_text("*", font_size);
         float diameter = font_size * 0.30f;   // smaller than the advance so the dots keep a gap

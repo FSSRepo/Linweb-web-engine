@@ -1,10 +1,15 @@
 #include "layout_engine.h"
+#include "utils/text_transform.h"
+#include "utils/text_wrap.h"
 #include "../renderer/renderer.h"
 #include "../renderer/texture_manager.h"
 #include "../renderer/svg_loader.h"
+#include "../renderer/custom_font.h"
 #include "style/colors.h"
 #include "forms/form_controls.h"
 #include "utils/control_label.h"
+#include "utils/file_utils.h"
+#include "media/video_player.h"
 #include <algorithm>
 #include <sstream>
 #include <vector>
@@ -15,6 +20,81 @@ namespace linweb
 {
     namespace
     {
+        // Size of the picture of a <video>: the video being played, or the file its src points to.
+        bool video_intrinsic_size(const std::string &src, float &width, float &height)
+        {
+            int w = 0, h = 0;
+            if (src.empty() || !video::dimensions(src.compare(0, 4, "http") == 0 ? src : resolve_image_src(src), w, h))
+            {
+                return false;
+            }
+            width = static_cast<float>(w);
+            height = static_cast<float>(h);
+            return w > 0 && h > 0;
+        }
+    } // namespace
+
+    namespace
+    {
+        // The box is the first thing in the flow of its parent: nothing but white space and empty blocks comes before it
+        bool starts_flow_of_parent(const LayoutBox &box)
+        {
+            auto parent_box = box.parent.lock();
+            if (!parent_box) return false;
+            for (const auto &sibling : parent_box->children) {
+                if (sibling->styled_node->node == box.styled_node->node) return true;
+                if (sibling->styled_node->node->type() == NodeType::Text) {
+                    if (static_cast<TextNode &>(*sibling->styled_node->node).data.find_first_not_of(" \t\n\r\f") != std::string::npos) return false;
+                    continue;
+                }
+                const Dimensions &d = sibling->dimensions;
+                const bool empty_block = sibling->laid_out && d.content.height == 0.0f && d.padding.top == 0.0f && d.padding.bottom == 0.0f &&
+                                         d.border.top == 0.0f && d.border.bottom == 0.0f && d.margin.top == 0.0f && d.margin.bottom == 0.0f;
+                if (!empty_block) return false;
+            }
+            return false;
+        }
+
+        // Quirks mode drops the user agent margin above the first block of a body or a table cell, and also when the
+        // blocks around it have nothing between that margin and the container (no padding, border or formatting context)
+        bool quirk_drops_top_margin(const LayoutBox &box)
+        {
+            auto parent_box = box.parent.lock();
+            if (!parent_box || !starts_flow_of_parent(box)) return false;
+            const std::string &tag = parent_box->styled_node->node->tag_name;
+            if (tag == "body" || tag == "td" || tag == "th") return true;
+            auto outer = parent_box->parent.lock();
+            const std::string overflow = parent_box->styled_node->value("overflow");
+            const std::string position = parent_box->styled_node->value("position");
+            const bool own_context = (outer && (outer->box_type == BoxType::Flex || outer->box_type == BoxType::Grid)) ||
+                                     (!overflow.empty() && overflow != "visible") || position == "absolute" || position == "fixed";
+            if (parent_box->box_type != BoxType::Block || own_context || parent_box->dimensions.padding.top != 0.0f ||
+                parent_box->dimensions.border.top != 0.0f)
+                return false;
+            return quirk_drops_top_margin(*parent_box);
+        }
+
+        // The words of a shorthand value; a function such as rgba(255, 255, 255, 0.2) stays one word
+        std::vector<std::string> value_words(const std::string &value)
+        {
+            std::vector<std::string> words;
+            std::string current;
+            int depth = 0;
+            for (char c : value)
+            {
+                if (c == '(') ++depth;
+                else if (c == ')' && depth > 0) --depth;
+                if (depth == 0 && std::isspace(static_cast<unsigned char>(c)))
+                {
+                    if (!current.empty()) words.push_back(current);
+                    current.clear();
+                }
+                else current += c;
+            }
+            if (!current.empty()) words.push_back(current);
+            return words;
+        }
+
         // Default size of the content box of a form control (a CSS width or height wins over it).
         bool control_intrinsic_size(const Node &node, float font_size, float &width, float &height)
         {
@@ -29,7 +109,7 @@ namespace linweb
             {
                 long chars = std::strtol(node.data.attributes.count("size") ? node.data.attributes.at("size").c_str() : "20", nullptr, 10);
                 if (chars <= 0) chars = 20;
-                width = static_cast<float>(chars) * Renderer::measure_text("0", font_size);
+                width = static_cast<float>(chars) * Renderer::measure_text("0", font_size) + 1.56f * font_size;
                 height = Renderer::get_line_height(font_size);
                 return true;
             }
@@ -48,7 +128,6 @@ namespace linweb
                 for (const auto& option : forms::options_of(node)) {
                     width = std::max(width, Renderer::measure_text(forms::option_text(*option), font_size));
                 }
-                if (width > 0.0f) width += 12.0f;
                 height = Renderer::get_line_height(font_size);
                 return true;
             }
@@ -88,7 +167,7 @@ namespace linweb
         }
         else
         {
-            this->line_height = Renderer::get_line_height(font_size);
+            this->line_height = Renderer::get_line_height(font_size, CustomFonts::select(styled_node->value("font-family"), styled_node->value("font-weight"), styled_node->value("font-style")));
         }
 
         // 1. Resolve Margin, Padding, Border
@@ -98,7 +177,7 @@ namespace linweb
         bool is_pseudo = std::dynamic_pointer_cast<PseudoElementNode>(styled_node->node) != nullptr;
         if (styled_node->node->type() == NodeType::Text || is_pseudo)
         {
-            resolve_text_node_dimensions(font_size, this->line_height);
+            resolve_text_node_dimensions(container_dimensions, font_size, this->line_height);
         }
         else
         {
@@ -156,6 +235,7 @@ namespace linweb
     {
         std::string tag = styled_node->node->tag_name;
 
+        ua_margin_top = false;
         auto resolve_prop = [&](const std::string &prop, float parent_val) -> float
         {
             std::string val = styled_node->value(prop);
@@ -167,6 +247,8 @@ namespace linweb
                 {
                     if (prop == "margin-top" || prop == "margin-bottom")
                     {
+                        if (prop == "margin-top" && (tag == "h1" || tag == "h2" || tag == "h3" || tag == "p"))
+                            ua_margin_top = true;
                         if (tag == "h1")
                             return 0.67f * font_size;
                         if (tag == "h2")
@@ -186,6 +268,10 @@ namespace linweb
         dimensions.margin.right = resolve_prop("margin-right", parent_width);
         dimensions.margin.top = resolve_prop("margin-top", parent_width);
         dimensions.margin.bottom = resolve_prop("margin-bottom", parent_width);
+
+        // Quirks mode: the user agent margin of the first block of the body (or of a table cell), also through the blocks
+        // that start it, is dropped
+        if (g_quirks_mode && ua_margin_top && quirk_drops_top_margin(*this)) dimensions.margin.top = 0.0f;
 
         dimensions.padding.left = resolve_prop("padding-left", parent_width);
         dimensions.padding.right = resolve_prop("padding-right", parent_width);
@@ -282,9 +368,7 @@ namespace linweb
         std::string border = styled_node->value("border");
         if (!border.empty())
         {
-            std::stringstream ss(border);
-            std::string part;
-            while (ss >> part)
+            for (const std::string &part : value_words(border))
             {
                 if (part.find("px") != std::string::npos || part.find("em") != std::string::npos || (std::isdigit(part[0]) && part != "0"))
                 {
@@ -316,9 +400,7 @@ namespace linweb
         auto resolve_border_side = [&](const std::string &prop, int idx) {
             std::string val = styled_node->value(prop);
             if (val.empty()) return;
-            std::stringstream ss(val);
-            std::string part;
-            while (ss >> part) {
+            for (const std::string &part : value_words(val)) {
                 if (part.find("px") != std::string::npos || part.find("em") != std::string::npos || (std::isdigit(part[0]) && part != "0")) {
                     float b = (part.find("%") != std::string::npos) ? LayoutEngine::parse_px(part, parent_width) : LayoutEngine::parse_px(part, font_size);
                     if (idx == 0) dimensions.border.top = b;
@@ -359,28 +441,18 @@ namespace linweb
             set_color(3, parse_color_str(blc));
     }
 
-    /**
-     * @brief Calculates the dimensions for a text node.
-     *
-     * @param font_size Font size.
-     * @param line_height Line height.
-     */
-    void LayoutBox::resolve_text_node_dimensions(float font_size, float line_height)
+    std::string LayoutBox::text_to_show(float* leading_trim) const
     {
+        if (leading_trim) *leading_trim = 0;
         std::string text_data;
         if (auto text_node = std::dynamic_pointer_cast<TextNode>(styled_node->node)) {
-            text_data = text_node->data;
+            text_data = apply_text_transform(text_node->data, styled_node->value("text-transform"));
         } else if (auto pseudo_node = std::dynamic_pointer_cast<PseudoElementNode>(styled_node->node)) {
             text_data = pseudo_node->pseudo_content;
         }
-        std::string font_weight = styled_node->value("font-weight");
-        bool is_bold = (font_weight == "bold" || font_weight == "700" || font_weight == "800" || font_weight == "900");
-        std::string font_family = styled_node->value("font-family");
-        bool is_monospace = (font_family == "monospace");
 
         // A text node that opens or closes a block drops the white space at that edge, as a line does in CSS.
         // Its leading part is kept out of the width, and drawing moves the text left by it.
-        text_leading_trim = 0;
         auto parent_box = parent.lock();
         auto dom_node = styled_node->node;
         auto dom_parent = dom_node->parent.lock();
@@ -407,14 +479,113 @@ namespace linweb
             } else {
                 if (at_end) text_data.erase(last + 1);
                 if (at_start && first > 0) {
-                    text_leading_trim = Renderer::measure_text(text_data.substr(0, first), font_size, is_bold, is_monospace);
+                    if (leading_trim) *leading_trim = measure_text_run(text_data.substr(0, first));
                     text_data.erase(0, first);
                 }
             }
         }
+        return text_data;
+    }
 
-        dimensions.content.width = Renderer::measure_text(text_data, font_size, is_bold, is_monospace);
+    float LayoutBox::measure_text_run(const std::string& text) const
+    {
+        float font_size = LayoutEngine::parse_px(styled_node->value("font-size"), 16.0f);
+        if (font_size <= 0) font_size = 16.0f;
+        std::string font_weight = styled_node->value("font-weight");
+        bool is_bold = (font_weight == "bold" || font_weight == "700" || font_weight == "800" || font_weight == "900");
+        std::string font_family = styled_node->value("font-family");
+        bool is_monospace = (font_family == "monospace");
+        const CustomFont* custom = CustomFonts::select(font_family, font_weight, styled_node->value("font-style"));
+        return Renderer::measure_text(text, font_size, is_bold, is_monospace, custom)
+            + parse_letter_spacing(styled_node->value("letter-spacing")) * static_cast<float>(utf8_char_count(text));
+    }
+
+    // The nearest block around the text: the lines after the first start at its left edge and are as wide as it is
+    static std::shared_ptr<LayoutBox> block_around(const LayoutBox& box)
+    {
+        // an inline box that is an item of a flex or grid container is a block of its own
+        auto is_item = [](const std::shared_ptr<LayoutBox>& candidate) {
+            auto outer = candidate->parent.lock();
+            return outer && (outer->box_type == BoxType::Flex || outer->box_type == BoxType::Grid);
+        };
+        auto ancestor = box.parent.lock();
+        while (ancestor && (ancestor->box_type == BoxType::Inline || ancestor->box_type == BoxType::Anonymous) && !is_item(ancestor))
+            ancestor = ancestor->parent.lock();
+        return ancestor;
+    }
+
+    static float block_width_around(const LayoutBox& box)
+    {
+        auto block = block_around(box);
+        return block ? block->dimensions.content.width : 0.0f;
+    }
+
+    float LayoutBox::text_block_left() const
+    {
+        auto block = block_around(*this);
+        return block ? block->dimensions.content.x : dimensions.content.x;
+    }
+
+    // Where a line of a wrapped text starts, with the block's text-align applied. The first line only moves when the
+    // text starts its line; the box's own position already holds the lines that come before it.
+    float LayoutBox::text_line_x(size_t index, float line_width) const
+    {
+        auto block = block_around(*this);
+        if (!block) return dimensions.content.x - text_leading_trim;
+        const std::string align = styled_node->value("text-align");
+        const float factor = align == "center" ? 0.5f : (align == "right" || align == "end") ? 1.0f : 0.0f;
+        const float left = block->dimensions.content.x;
+        const bool starts_line = text_first_width >= block->dimensions.content.width - 0.5f;
+        if (index == 0 && (factor == 0.0f || !starts_line))
+            return dimensions.content.x - text_leading_trim;
+        return left + std::max(0.0f, block->dimensions.content.width - line_width) * factor;
+    }
+
+    std::vector<std::string> LayoutBox::text_lines() const
+    {
+        std::string text = text_to_show();
+        const std::string white_space = styled_node->value("white-space");
+        // A text in an inline-level item of a flex or grid container (a span with a margin, a size label) is sized by its
+        // content: the item is as wide as its text, so the text never wraps there.
+        if (auto block = block_around(*this); block && block->box_type == BoxType::Inline) return {text};
+        const float later_width = block_width_around(*this);
+        if (white_space == "nowrap" || white_space.compare(0, 3, "pre") == 0 || text.find(' ') == std::string::npos ||
+            text_first_width <= 1.0f || later_width <= 1.0f)
+            return {text};
+        return wrap_text(text, text_first_width, later_width, [this](const std::string& run) { return measure_text_run(run); });
+    }
+
+    /**
+     * @brief Calculates the dimensions for a text node.
+     *
+     * @param container_dimensions Container: its width is what is left on the line the text starts on.
+     * @param font_size Font size.
+     * @param line_height Line height.
+     */
+    void LayoutBox::resolve_text_node_dimensions(Dimensions container_dimensions, float font_size, float line_height)
+    {
+        std::string text_data = text_to_show(&text_leading_trim);
+
+        // A box that is only moved (line alignment, flex placement) is laid out again in a container as wide as itself:
+        // its wrapping stays as the flow of its line found it.
+        const bool moved_only = laid_out && text_line_count > 1 && container_dimensions.content.width == dimensions.content.width;
+        if (!moved_only) text_first_width = container_dimensions.content.width;
+        text_line_count = 1;
+        total_y_offset = 0;
+        last_line_width = 0;
+        dimensions.content.width = measure_text_run(text_data);
         dimensions.content.height = line_height;
+
+        std::vector<std::string> lines = text_lines();
+        if (lines.size() > 1) {
+            float widest = 0;
+            for (const auto& line : lines) widest = std::max(widest, measure_text_run(line));
+            text_line_count = static_cast<int>(lines.size());
+            dimensions.content.width = widest;
+            dimensions.content.height = line_height * static_cast<float>(lines.size());
+            total_y_offset = line_height * static_cast<float>(lines.size() - 1);
+            last_line_width = measure_text_run(lines.back());
+        }
     }
 
     /**
@@ -431,7 +602,7 @@ namespace linweb
 
         std::string w_str = styled_node->value("width");
         if (w_str == "auto") w_str.clear();
-        if (w_str.empty() && (styled_node->node->tag_name == "img" || styled_node->node->tag_name == "svg")) {
+        if (w_str.empty() && (styled_node->node->tag_name == "img" || styled_node->node->tag_name == "svg" || styled_node->node->tag_name == "video")) {
             auto it = styled_node->node->data.attributes.find("width");
             if (it != styled_node->node->data.attributes.end()) {
                 w_str = it->second;
@@ -453,11 +624,13 @@ namespace linweb
                  !styled_node->value("left").empty() && !styled_node->value("right").empty())
         {
             // An absolutely positioned box with auto width and both left and right set fills what those leave
-            float l = LayoutEngine::parse_px(styled_node->value("left"), parent_width);
-            float r = LayoutEngine::parse_px(styled_node->value("right"), parent_width);
+            // the containing block, not this box: a second layout of the box passes the box's own width as its container
+            float block_width = containing_block_width > 0 ? containing_block_width : parent_width;
+            float l = LayoutEngine::parse_px(styled_node->value("left"), block_width);
+            float r = LayoutEngine::parse_px(styled_node->value("right"), block_width);
             float ml = (dimensions.margin.left == -12345.0f) ? 0 : dimensions.margin.left;
             float mr = (dimensions.margin.right == -12345.0f) ? 0 : dimensions.margin.right;
-            dimensions.content.width = std::max(0.0f, parent_width - l - r - ml - mr -
+            dimensions.content.width = std::max(0.0f, block_width - l - r - ml - mr -
                                                           dimensions.padding.left - dimensions.padding.right -
                                                           dimensions.border.left - dimensions.border.right);
         }
@@ -540,9 +713,15 @@ namespace linweb
             }
         }
 
+        // A <video> without a width is as wide as its picture (300 px, like a browser, while it has none)
+        if (styled_node->node->tag_name == "video" && w_str.empty()) {
+            float video_w = 0, video_h = 0;
+            dimensions.content.width = video_intrinsic_size(styled_node->node->data.src(), video_w, video_h) ? video_w : 300.0f;
+        }
+
         // Handle image intrinsic width if not set
         if ((styled_node->node->tag_name == "img" || styled_node->node->tag_name == "svg") && w_str.empty()) {
-            std::string src = styled_node->node->data.src();
+            std::string src = resolve_image_src(styled_node->node->data.src());
             if (styled_node->node->tag_name == "svg") {
                 std::string content = SvgLoader::reconstruct_svg(styled_node->node);
                 float sw = 0, sh = 0;
@@ -560,13 +739,48 @@ namespace linweb
                         dimensions.content.width = sw;
                     }
                 } else {
-                    Texture tex = TextureManager::get().get_texture(src);
-                    if (tex.id != 0) {
-                        dimensions.content.width = static_cast<float>(tex.width);
+                    int image_w = 0, image_h = 0;
+                    if (TextureManager::get().image_size(src, image_w, image_h)) {
+                        dimensions.content.width = static_cast<float>(image_w);
                     }
                 }
             }
         }
+    }
+
+    void LayoutBox::update_total_content_height()
+    {
+        if (box_type == BoxType::Inline)
+        {
+            total_content_height = dimensions.content.height;
+            return;
+        }
+
+        // Initial range covers our own content area plus padding and borders
+        float min_y = dimensions.content.y - dimensions.padding.top - dimensions.border.top;
+        float max_y = dimensions.content.y + dimensions.content.height + dimensions.padding.bottom + dimensions.border.bottom;
+
+        for (const auto &child : children)
+        {
+            // A box layout never reached (the white space a flex or grid container skips) keeps the coordinates it was
+            // created with, and a line break has no painted box. Neither can extend the scroll bounds.
+            if (!child->laid_out) continue;
+            if (child->styled_node->node->tag_name == "br") continue;
+            if (child->position == PositionType::Static || child->position == PositionType::Relative)
+            {
+                // Use the child's total content height which already includes its own children and margins
+                float child_min_y = child->dimensions.content.y - child->dimensions.padding.top - child->dimensions.border.top;
+                float child_max_y = child_min_y + child->total_content_height;
+
+                // Include child's margins in the parent's content height
+                float child_outer_top = child_min_y - child->dimensions.margin.top;
+                float child_outer_bottom = child_max_y + child->dimensions.margin.bottom;
+
+                min_y = std::min(min_y, child_outer_top);
+                max_y = std::max(max_y, child_outer_bottom);
+            }
+        }
+        total_content_height = max_y - min_y;
     }
 
     /**
@@ -593,7 +807,7 @@ namespace linweb
         std::string h_str = styled_node->value("height");
         if (w_str == "auto") w_str.clear();
         if (h_str == "auto") h_str.clear();
-        if (h_str.empty() && (styled_node->node->tag_name == "img" || styled_node->node->tag_name == "svg")) {
+        if (h_str.empty() && (styled_node->node->tag_name == "img" || styled_node->node->tag_name == "svg" || styled_node->node->tag_name == "video")) {
             auto it = styled_node->node->data.attributes.find("height");
             if (it != styled_node->node->data.attributes.end()) {
                 h_str = it->second;
@@ -604,7 +818,7 @@ namespace linweb
         std::string min_h_str = styled_node->value("min-height");
         std::string max_h_str = styled_node->value("max-height");
 
-        float children_height = (children.empty() && styled_node->node->type() == NodeType::Text) ? this->line_height : (current_y_offset + max_line_height);
+        float children_height = (children.empty() && (styled_node->node->type() == NodeType::Text || text_line_count > 1)) ? this->line_height * static_cast<float>(std::max(1, text_line_count)) : (current_y_offset + max_line_height);
 
         // Add padding and border to total_content_height for scrollable areas
         total_content_height = children_height + dimensions.padding.top + dimensions.padding.bottom + dimensions.border.top + dimensions.border.bottom;
@@ -647,11 +861,12 @@ namespace linweb
                  !styled_node->value("top").empty() && !styled_node->value("bottom").empty() && !parent_height_indefinite)
         {
             // Auto height with both top and bottom set fills what those leave
-            float t = LayoutEngine::parse_px(styled_node->value("top"), parent_height);
-            float b = LayoutEngine::parse_px(styled_node->value("bottom"), parent_height);
+            float block_height = containing_block_height > 0 ? containing_block_height : parent_height;
+            float t = LayoutEngine::parse_px(styled_node->value("top"), block_height);
+            float b = LayoutEngine::parse_px(styled_node->value("bottom"), block_height);
             float mt = (dimensions.margin.top == -12345.0f) ? 0 : dimensions.margin.top;
             float mb = (dimensions.margin.bottom == -12345.0f) ? 0 : dimensions.margin.bottom;
-            dimensions.content.height = std::max(0.0f, parent_height - t - b - mt - mb -
+            dimensions.content.height = std::max(0.0f, block_height - t - b - mt - mb -
                                                          dimensions.padding.top - dimensions.padding.bottom -
                                                          dimensions.border.top - dimensions.border.bottom);
         }
@@ -696,6 +911,20 @@ namespace linweb
             }
         }
 
+        // A <video> keeps the aspect ratio of its picture when only one side is set
+        if (styled_node->node->tag_name == "video") {
+            float video_w = 0, video_h = 0;
+            if (video_intrinsic_size(styled_node->node->data.src(), video_w, video_h)) {
+                if (h_str.empty()) {
+                    dimensions.content.height = w_str.empty() ? video_h : (dimensions.content.width / video_w) * video_h;
+                } else if (w_str.empty()) {
+                    dimensions.content.width = (dimensions.content.height / video_h) * video_w;
+                }
+            } else if (h_str.empty()) {
+                dimensions.content.height = 150.0f;
+            }
+        }
+
         // A form control without a height gets its default one
         if (h_str.empty()) {
             float control_w = 0, control_h = 0;
@@ -707,7 +936,7 @@ namespace linweb
 
         // Handle image intrinsic height and aspect ratio if not set
         if (styled_node->node->tag_name == "img" || styled_node->node->tag_name == "svg") {
-            std::string src = styled_node->node->data.src();
+            std::string src = resolve_image_src(styled_node->node->data.src());
             float intrinsic_w = 0;
             float intrinsic_h = 0;
             bool found = false;
@@ -719,10 +948,10 @@ namespace linweb
                 if (src.size() > 4 && src.substr(src.size() - 4) == ".svg") {
                     found = SvgLoader::get_intrinsic_size(src, intrinsic_w, intrinsic_h);
                 } else {
-                    Texture tex = TextureManager::get().get_texture(src);
-                    if (tex.id != 0) {
-                        intrinsic_w = static_cast<float>(tex.width);
-                        intrinsic_h = static_cast<float>(tex.height);
+                    int image_w = 0, image_h = 0;
+                    if (TextureManager::get().image_size(src, image_w, image_h)) {
+                        intrinsic_w = static_cast<float>(image_w);
+                        intrinsic_h = static_cast<float>(image_h);
                         found = true;
                     }
                 }
@@ -747,7 +976,7 @@ namespace linweb
         // Adjust for inline width/height if not specified
         bool is_abs_fixed = styled_node->value("position") == "absolute" || styled_node->value("position") == "fixed";
 
-        bool is_replaced_element = styled_node->node->tag_name == "img" || styled_node->node->tag_name == "svg" || is_button_input(*styled_node->node) || forms::kind_of(*styled_node->node) != forms::Kind::None;
+        bool is_replaced_element = styled_node->node->tag_name == "img" || styled_node->node->tag_name == "svg" || styled_node->node->tag_name == "video" || is_button_input(*styled_node->node) || forms::kind_of(*styled_node->node) != forms::Kind::None;
         bool should_inline_shrink = (box_type == BoxType::Inline || box_type == BoxType::InlineBlock) && !is_replaced_element;
 
         // with left and right both set, an absolute box with auto width fills the space they leave (set above)
@@ -777,46 +1006,26 @@ namespace linweb
             }
         }
 
-        this->last_line_width = current_x_offset;
-        this->total_y_offset = current_y_offset;
-
-        // Calculate total content height including children for scroll limits
-        if (box_type != BoxType::Inline)
+        // a wrapped text box keeps what its own wrapping found: where its last line ends and how far down it starts
+        if (!(children.empty() && text_line_count > 1))
         {
-            // Initial range covers our own content area plus padding and borders
-            float min_y = dimensions.content.y - dimensions.padding.top - dimensions.border.top;
-            float max_y = dimensions.content.y + dimensions.content.height + dimensions.padding.bottom + dimensions.border.bottom;
-
-            for (const auto &child : children)
-            {
-                // Line breaks have no painted box and may still carry their
-                // initial (0,0) coordinates. They cannot extend scroll bounds.
-                if (child->styled_node->node->tag_name == "br") continue;
-                if (child->position == PositionType::Static || child->position == PositionType::Relative)
-                {
-                    // Use the child's total content height which already includes its own children and margins
-                    float child_min_y = child->dimensions.content.y - child->dimensions.padding.top - child->dimensions.border.top;
-                    float child_max_y = child_min_y + child->total_content_height;
-
-                    // Include child's margins in the parent's content height
-                    float child_outer_top = child_min_y - child->dimensions.margin.top;
-                    float child_outer_bottom = child_max_y + child->dimensions.margin.bottom;
-
-                    min_y = std::min(min_y, child_outer_top);
-                    max_y = std::max(max_y, child_outer_bottom);
-                }
-            }
-            total_content_height = max_y - min_y;
+            this->last_line_width = current_x_offset;
+            this->total_y_offset = current_y_offset;
         }
-        else
-        {
-            total_content_height = dimensions.content.height;
-        }
+
+        update_total_content_height();
 
         // Final special cases for html/body
         if (styled_node->node->type() == NodeType::Element)
         {
             auto element = std::static_pointer_cast<ElementNode>(styled_node->node);
+            if (g_quirks_mode && element->tag_name == "body" && (styled_node->value("height").empty() || styled_node->value("height") == "auto"))
+            {
+                auto margin = [](float v) { return v == -12345.0f ? 0.0f : v; };
+                float fill = container_dimensions.content.height - margin(dimensions.margin.top) - margin(dimensions.margin.bottom) -
+                             dimensions.padding.top - dimensions.padding.bottom - dimensions.border.top - dimensions.border.bottom;
+                dimensions.content.height = std::max(dimensions.content.height, fill);
+            }
             if (element->tag_name == "html")
             {
                 float target_height = container_dimensions.content.height;

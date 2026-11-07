@@ -17,12 +17,53 @@ StyleSheet CSSParser::parse(const std::string& source, float viewport_width, flo
     parser.viewport_height_ = viewport_height;
     StyleSheet sheet;
     parser.parse_rules(sheet);
+    for (const auto& rule : sheet.rules) {
+        for (const auto& selector : rule.selectors) {
+            if (selector.parts.empty()) continue;
+            const std::string& pseudo = selector.parts.back().pseudo_element;
+            if (pseudo == "first-line") sheet.has_first_line_rules = true;
+            if (pseudo == "-webkit-scrollbar") sheet.has_scrollbar_rules = true;
+        }
+    }
     return sheet;
 }
 
 std::vector<Selector> CSSParser::parse_selectors(const std::string& source) {
     CSSParser parser(source);
     return linweb::parse_selectors(parser.tokenizer);
+}
+
+// The value of a font-face descriptor without its surrounding quotes and spaces
+static std::string unquoted(std::string value) {
+    size_t start = value.find_first_not_of(" \t\r\n");
+    size_t end = value.find_last_not_of(" \t\r\n");
+    if (start == std::string::npos) return "";
+    value = value.substr(start, end - start + 1);
+    if (value.size() >= 2 && (value.front() == '"' || value.front() == '\'') && value.back() == value.front())
+        value = value.substr(1, value.size() - 2);
+    return value;
+}
+
+// The body of an @font-face rule: its family, the file of its src, its weight and its style
+static FontFaceRule parse_font_face(const std::string& body) {
+    CSSTokenizer tokenizer(body);
+    FontFaceRule rule;
+    for (const auto& declaration : parse_declarations(tokenizer)) {
+        if (declaration.name == "font-family") {
+            rule.family = unquoted(declaration.value);
+        } else if (declaration.name == "src") {
+            size_t url = declaration.value.find("url(");
+            if (url == std::string::npos) continue;
+            size_t close = declaration.value.find(')', url);
+            if (close == std::string::npos) continue;
+            rule.source = unquoted(declaration.value.substr(url + 4, close - (url + 4)));
+        } else if (declaration.name == "font-weight") {
+            rule.weight = unquoted(declaration.value);
+        } else if (declaration.name == "font-style") {
+            rule.style = unquoted(declaration.value);
+        }
+    }
+    return rule;
 }
 
 std::vector<Rule> CSSParser::parse_rules(StyleSheet& sheet) {
@@ -69,6 +110,10 @@ std::vector<Rule> CSSParser::parse_rules(StyleSheet& sheet) {
                     tokenizer.pos = end == std::string::npos ? tokenizer.input.size() : end + 2;
                 }
             }
+            if (name == "font-face") {
+                size_t body_end = tokenizer.pos - (depth == 0 ? 1 : 0);
+                sheet.font_faces.push_back(parse_font_face(tokenizer.input.substr(start, body_end - start)));
+            }
             if (name == "media") {
                 bool matches = false;
                 std::istringstream alternatives(condition);
@@ -105,6 +150,7 @@ std::vector<Rule> CSSParser::parse_rules(StyleSheet& sheet) {
                     auto nested = CSSParser::parse(tokenizer.input.substr(start, end - start), viewport_width_, viewport_height_);
                     sheet.rules.insert(sheet.rules.end(), nested.rules.begin(), nested.rules.end());
                     sheet.keyframes.insert(nested.keyframes.begin(), nested.keyframes.end());
+                    sheet.font_faces.insert(sheet.font_faces.end(), nested.font_faces.begin(), nested.font_faces.end());
                 }
             }
             // Unknown at-rules and unsupported font faces are skipped as whole

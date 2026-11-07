@@ -28,6 +28,7 @@ struct KeyEvent {
     std::string code;            // DOM "code": "KeyA", "Digit1", "ShiftLeft"...
     int keyCode = 0;             // DOM legacy keyCode (65 for A, 13 for Enter...)
     bool repeat = false;
+    std::string source;          // "" for a keyboard; "hat" (D-pad) or "stick" for the keys a gamepad makes
 };
 
 // Builds the event for a key. `keysym` is the symbol with the current modifiers applied

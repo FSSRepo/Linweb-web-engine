@@ -10,7 +10,7 @@
 
 namespace linweb {
 
-extern bool g_dom_dirty;
+void mark_dom_dirty(const Node* node);
 
 namespace forms {
 
@@ -97,7 +97,7 @@ JSValue js_set_attribute(JSContext* ctx, JSValueConst, int argc, JSValueConst* a
     std::string name = string_arg(ctx, argc, argv, 1);
     if (name == "value" && kind_of(*node) != Kind::None) set_value(node, string_arg(ctx, argc, argv, 2));
     else node->data.attributes[name] = string_arg(ctx, argc, argv, 2);
-    g_dom_dirty = true;   // the attribute may be used by styles or change the size of a control
+    mark_dom_dirty(node.get());   // the attribute may be used by styles or change the size of a control
     return JS_UNDEFINED;
 }
 
@@ -106,7 +106,7 @@ JSValue js_remove_attribute(JSContext* ctx, JSValueConst, int argc, JSValueConst
     auto node = node_from(ctx, argv[0]);
     if (node && node->type() == NodeType::Element) {
         node->data.attributes.erase(string_arg(ctx, argc, argv, 1));
-        g_dom_dirty = true;
+        mark_dom_dirty(node.get());
     }
     return JS_UNDEFINED;
 }
@@ -149,6 +149,51 @@ JSValue js_get_active_element(JSContext* ctx, JSValueConst, int, JSValueConst*) 
 JSValue js_prevent_default(JSContext*, JSValueConst, int, JSValueConst*) {
     g_prevented = true;
     return JS_UNDEFINED;
+}
+
+void install_bindings(JSEngine& js) {
+    js.add_function("__getValue", js_get_value);
+    js.add_function("__setValue", js_set_value);
+    js.add_function("__setAttribute", js_set_attribute);
+    js.add_function("__removeAttribute", js_remove_attribute);
+    js.add_function("__hasAttribute", js_has_attribute);
+    js.add_function("__focusNode", js_focus_node);
+    js.add_function("__openPicker", js_open_picker);
+    js.add_function("__blurNode", js_blur_node);
+    js.add_function("__getActiveElement", js_get_active_element);
+    js.add_function("__preventDefault", js_prevent_default);
+
+    js.execute(R"JS(
+__mixin(document, {
+  get activeElement() {
+    const node = __getActiveElement();
+    return node ? document._wrap(node) : null;
+  }
+});
+document._wrappers.push((node) => ({
+  setAttribute: (name, val) => __setAttribute(node._addr, name, String(val)),
+  removeAttribute: (name) => __removeAttribute(node._addr, name),
+  hasAttribute: (name) => __hasAttribute(node._addr, name),
+  get value() { return __getValue(node._addr); },
+  set value(val) { __setValue(node._addr, String(val)); },
+  get valueAsNumber() { return parseFloat(__getValue(node._addr)); },
+  get disabled() { return __hasAttribute(node._addr, 'disabled'); },
+  set disabled(val) { if (val) __setAttribute(node._addr, 'disabled', ''); else __removeAttribute(node._addr, 'disabled'); },
+  get min() { return __getAttribute(node._addr, 'min') || ''; },
+  set min(val) { __setAttribute(node._addr, 'min', String(val)); },
+  get max() { return __getAttribute(node._addr, 'max') || ''; },
+  set max(val) { __setAttribute(node._addr, 'max', String(val)); },
+  get step() { return __getAttribute(node._addr, 'step') || ''; },
+  set step(val) { __setAttribute(node._addr, 'step', String(val)); },
+  get placeholder() { return __getAttribute(node._addr, 'placeholder') || ''; },
+  set placeholder(val) { __setAttribute(node._addr, 'placeholder', String(val)); },
+  focus: () => __focusNode(node._addr),
+  showPicker: () => __openPicker(node._addr),
+  blur: () => __blurNode()
+}));
+)JS");
+
+    install_events(&js);
 }
 
 } // namespace forms

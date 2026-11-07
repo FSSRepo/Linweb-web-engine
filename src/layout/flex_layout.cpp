@@ -1,4 +1,5 @@
 #include "layout_engine.h"
+
 #include <vector>
 #include <memory>
 #include <string>
@@ -126,7 +127,6 @@ namespace linweb
                 child_container.content.width = container_content_width;
                 child_container.content.height = container_content_height;
             }
-
             child->layout(child_container);
 
             float child_main = compute_outer_main(child, is_column);
@@ -155,6 +155,9 @@ namespace linweb
                                 styled_node->value("width").empty() &&
                                 flex_factors_of(styled_node).basis.empty();
         if (!is_column && sized_by_content)
+            return;
+        // a column with an auto height has no free space: it is as tall as its items, so none is shrunk or grown
+        if (is_column && (styled_node->value("height").empty() || styled_node->value("height") == "auto"))
             return;
 
         float container_main_size = is_column ? dimensions.content.height : dimensions.content.width;
@@ -662,9 +665,18 @@ namespace linweb
     bool in_row = parent_flex && parent_flex->box_type == BoxType::Flex && parent_flex->styled_node->value("flex-direction") != "column";
     // an item with its own flex-basis takes the width the row gave it, so only a content-based one is measured here
     if (in_row && styled_node->value("width").empty() && flex_factors_of(styled_node).basis.empty()) {
-        float content_main = total_main_size +
+        // a column is as wide as its widest item; a row is as wide as its items laid end to end
+        float content_main = (is_column ? cross_size : total_main_size) +
                              dimensions.padding.left + dimensions.padding.right +
                              dimensions.border.left + dimensions.border.right;
+        // min-width still holds: it was applied when the width was resolved, and this measure must not undo it
+        std::string min_w = styled_node->value("min-width");
+        if (!min_w.empty() && min_w != "auto") {
+            float minimum = LayoutEngine::parse_px(min_w, min_w.find('%') != std::string::npos ? container_dimensions.content.width : LayoutEngine::parse_px(styled_node->value("font-size"), 16.0f));
+            if (styled_node->value("box-sizing") == "border-box")
+                minimum -= dimensions.padding.left + dimensions.padding.right + dimensions.border.left + dimensions.border.right;
+            content_main = std::max(content_main, minimum);
+        }
         dimensions.content.width = content_main;
     }
 

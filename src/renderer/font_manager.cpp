@@ -100,6 +100,8 @@ bool FontManager::load_font(const std::string& path, bool bold) {
         // metrics are per em, like the glyph bitmaps baked above; ScaleForPixelHeight would use ascent - descent
         float scale = stbtt_ScaleForMappingEmToPixels(&font_info, RendererState::base_font_size);
         RendererState::font_ascent_px = (float)ascent * scale;
+        RendererState::font_descent_px = (float)(-descent) * scale;
+        RendererState::font_gap_px = (float)line_gap * scale;
         RendererState::font_line_height_px = (float)(ascent - descent + line_gap) * scale;
         if (!(RendererState::font_line_height_px > 0.0f))
             RendererState::font_line_height_px = 24.0f;

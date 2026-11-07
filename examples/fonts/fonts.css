@@ -1,0 +1,48 @@
+/*
+ * The fonts a browser on Windows picks for these pages, so Linweb measures the text the same way:
+ *   no font-family      -> Times New Roman      (the browser default, set on html below)
+ *   sans-serif          -> Arial
+ *   serif               -> Times New Roman
+ *   monospace           -> Consolas
+ *   'Segoe UI'          -> Segoe UI
+ * The generic names are declared as families too: a browser ignores a face named like a generic family and uses its own
+ * font for it, Linweb has no system fonts, so it needs the face to measure and draw them.
+ * The files come from C:\Windows\Fonts.
+ */
+
+@font-face { font-family: 'Times New Roman'; src: url('times.ttf'); font-weight: 400; font-style: normal; }
+@font-face { font-family: 'Times New Roman'; src: url('timesbd.ttf'); font-weight: 700; font-style: normal; }
+@font-face { font-family: 'Times New Roman'; src: url('timesi.ttf'); font-weight: 400; font-style: italic; }
+@font-face { font-family: 'Times New Roman'; src: url('timesbi.ttf'); font-weight: 700; font-style: italic; }
+
+@font-face { font-family: 'serif'; src: url('times.ttf'); font-weight: 400; font-style: normal; }
+@font-face { font-family: 'serif'; src: url('timesbd.ttf'); font-weight: 700; font-style: normal; }
+@font-face { font-family: 'serif'; src: url('timesi.ttf'); font-weight: 400; font-style: italic; }
+@font-face { font-family: 'serif'; src: url('timesbi.ttf'); font-weight: 700; font-style: italic; }
+
+@font-face { font-family: 'Arial'; src: url('arial.ttf'); font-weight: 400; font-style: normal; }
+@font-face { font-family: 'Arial'; src: url('arialbd.ttf'); font-weight: 700; font-style: normal; }
+@font-face { font-family: 'Arial'; src: url('ariali.ttf'); font-weight: 400; font-style: italic; }
+@font-face { font-family: 'Arial'; src: url('arialbi.ttf'); font-weight: 700; font-style: italic; }
+
+@font-face { font-family: 'sans-serif'; src: url('arial.ttf'); font-weight: 400; font-style: normal; }
+@font-face { font-family: 'sans-serif'; src: url('arialbd.ttf'); font-weight: 700; font-style: normal; }
+@font-face { font-family: 'sans-serif'; src: url('ariali.ttf'); font-weight: 400; font-style: italic; }
+@font-face { font-family: 'sans-serif'; src: url('arialbi.ttf'); font-weight: 700; font-style: italic; }
+
+@font-face { font-family: 'Consolas'; src: url('consola.ttf'); font-weight: 400; font-style: normal; }
+@font-face { font-family: 'Consolas'; src: url('consolab.ttf'); font-weight: 700; font-style: normal; }
+@font-face { font-family: 'Consolas'; src: url('consolai.ttf'); font-weight: 400; font-style: italic; }
+
+@font-face { font-family: 'monospace'; src: url('consola.ttf'); font-weight: 400; font-style: normal; }
+@font-face { font-family: 'monospace'; src: url('consolab.ttf'); font-weight: 700; font-style: normal; }
+@font-face { font-family: 'monospace'; src: url('consolai.ttf'); font-weight: 400; font-style: italic; }
+
+@font-face { font-family: 'Segoe UI'; src: url('segoeuil.ttf'); font-weight: 300; font-style: normal; }
+@font-face { font-family: 'Segoe UI'; src: url('segoeui.ttf'); font-weight: 400; font-style: normal; }
+@font-face { font-family: 'Segoe UI'; src: url('seguisb.ttf'); font-weight: 600; font-style: normal; }
+@font-face { font-family: 'Segoe UI'; src: url('segoeuib.ttf'); font-weight: 700; font-style: normal; }
+@font-face { font-family: 'Segoe UI'; src: url('segoeuii.ttf'); font-weight: 400; font-style: italic; }
+
+/* a page that names no font gets the browser default */
+html { font-family: 'Times New Roman'; }

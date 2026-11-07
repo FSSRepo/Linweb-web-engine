@@ -113,6 +113,7 @@ Key legacy_key(uint32_t ks) {
         case kAltL: return Key::LeftAlt;
         case kAltR: return Key::RightAlt;
         case kF1 + 1: return Key::F2;
+        case kF1 + 2: return Key::F3;
         default: return Key::Unknown;
     }
 }

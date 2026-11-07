@@ -32,24 +32,32 @@ void PropertyResolver::resolve_default_values(PropertyMap& values, const std::st
         } else if (tag == "p") {
             values["font-size"] = "16px";
         }
-    } else if (tag == "span" || tag == "a" || tag == "em" || tag == "strong" || tag == "code" || tag == "br") {
+    } else if (tag == "span" || tag == "a" || tag == "em" || tag == "strong" || tag == "code" || tag == "br" ||
+               tag == "b" || tag == "i" || tag == "u" || tag == "s" || tag == "small" || tag == "label" || tag == "abbr" ||
+               tag == "cite" || tag == "kbd" || tag == "var" || tag == "mark" || tag == "sub" || tag == "sup") {
         values["display"] = "inline";
-        if (tag == "strong") {
+        if (tag == "strong" || tag == "b") {
             values["font-weight"] = "bold";
         }
+        if (tag == "em" || tag == "i" || tag == "cite" || tag == "var") {
+            values["font-style"] = "italic";
+        }
+        if (tag == "small") values["font-size"] = "13px";
+        if (tag == "kbd") { values["font-family"] = "monospace"; values["font-size"] = "13px"; }
         if (tag == "code") {
             values["font-family"] = "monospace";
+            values["font-size"] = "13px";   // the browser's default size for the generic monospace family
         }
     } else if (tag == "button") {
         values["display"] = "inline-block";
         values["background"] = "#efefef";
         values["border"] = "1px solid #767676";
         values["border-radius"] = "2px";
-        values["padding"] = "3px 10px";
+        values["padding"] = "2px 7px";   // with the 1px border: the 2px border and 1px 6px padding of a browser button
         values["color"] = "#000";
         values["font-size"] = "13.3px";
-        values["margin"] = "2px";
-    } else if (tag == "img") {
+        values["margin"] = "0";
+    } else if (tag == "img" || tag == "video") {
         values["display"] = "inline";
     } else if (tag == "table") {
         values["display"] = "table";
@@ -160,6 +168,15 @@ PropertyMap PropertyResolver::resolve_specified_values(
     const std::string& tag = node->tag_name;
     
     resolve_default_values(values, tag);
+    if (tag == "ul" || tag == "ol") {
+        for (auto outer = node->parent.lock(); outer; outer = outer->parent.lock()) {
+            if (outer->tag_name == "ul" || outer->tag_name == "ol") {
+                values["margin-top"] = "0px";
+                values["margin-bottom"] = "0px";
+                break;
+            }
+        }
+    }
     if (tag == "input") {
         auto type = node->data.attributes.find("type");
         std::string input_type = type == node->data.attributes.end() ? "text" : type->second;
@@ -185,10 +202,10 @@ PropertyMap PropertyResolver::resolve_specified_values(
             set_default("background", "#ffffff");
             set_default("border", "1px solid #767676");
             set_default("border-radius", "3px");
-            set_default("padding", "3px 6px");
+            set_default("padding", "2px 3px");
             set_default("color", "#000000");
             set_default("font-size", "13.3px");
-            set_default("margin", "2px");
+            set_default("margin", "0");
             break;
         case forms::Kind::Range:
         case forms::Kind::Progress:
@@ -201,10 +218,10 @@ PropertyMap PropertyResolver::resolve_specified_values(
             set_default("background", "#ffffff");
             set_default("border", "1px solid #767676");
             set_default("border-radius", "3px");
-            set_default("padding", "3px 24px 3px 6px");
+            set_default("padding", "1px 16px 1px 4px");
             set_default("color", "#000000");
             set_default("font-size", "13.3px");
-            set_default("margin", "2px");
+            set_default("margin", "0");
             break;
         case forms::Kind::None:
             break;
@@ -230,7 +247,7 @@ PropertyMap PropertyResolver::resolve_specified_values(
         return v;
     };
 
-    if (tag == "img") {
+    if (tag == "img" || tag == "video") {
         auto width_it = node->data.attributes.find("width");
         if (width_it != node->data.attributes.end() && !width_it->second.empty()) {
             values["width"] = normalize_length_attr(width_it->second);
@@ -253,7 +270,7 @@ PropertyMap PropertyResolver::resolve_specified_values(
 void PropertyResolver::resolve_inherited_values(PropertyMap& values, const PropertyMap& inherited_values) {
     static const std::vector<std::string> inheritable_props = {
         "color", "font-family", "font-size", "font-weight", "line-height", "text-align", "opacity",
-        "text-shadow", "white-space", "visibility", "fill"
+        "text-shadow", "white-space", "visibility", "fill", "text-transform", "letter-spacing"
     };
 
     for (const auto& prop : inheritable_props) {

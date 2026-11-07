@@ -3,6 +3,10 @@
 #include <memory>
 #include <algorithm>
 #include <cctype>
+#include <functional>
+#include "renderer/renderer.h"
+#include "renderer/renderer_internal.h"
+#include "renderer/custom_font.h"
 
 namespace linweb
 {
@@ -89,6 +93,11 @@ namespace linweb
     void LayoutBox::apply_line_alignment(const std::vector<std::shared_ptr<LayoutBox>> &line, float line_width)
     {
         if (line.empty()) return;
+        // A box laid out again in place takes its own width as its container's, except when that width is a percentage:
+        // that one refers to this block
+        auto relayout_width = [this](const std::shared_ptr<LayoutBox>& box) {
+            return box->styled_node->value("width").find('%') != std::string::npos ? dimensions.content.width : box->dimensions.content.width;
+        };
         // An inline wrapper can establish its baseline through a descendant
         // with vertical-align: middle (for example an icon inside a link).
         auto middle_aligned = [](const std::shared_ptr<LayoutBox>& box) {
@@ -116,10 +125,87 @@ namespace linweb
             Dimensions shifted;
             shifted.content.x = box->dimensions.content.x - box->dimensions.margin.left - box->dimensions.padding.left - box->dimensions.border.left;
             shifted.content.y = box->dimensions.content.y - box->dimensions.margin.top - box->dimensions.padding.top - box->dimensions.border.top + offset;
-            shifted.content.width = box->dimensions.content.width;
+            shifted.content.width = relayout_width(box);
             shifted.content.height = box->dimensions.content.height;
             box->layout(shifted);
         }
+        // Everything in a line sits on one baseline: text of another size, an image (its bottom edge) or an inline-block
+        // (the baseline of its last line) is moved down to it. Positions are compared as they are, so aligning again
+        // after the boxes were moved changes nothing.
+        {
+            auto side = [](float v) { return v == -12345.0f ? 0.0f : v; };
+            // the absolute y of the baseline of a text box
+            auto text_baseline = [](const std::shared_ptr<LayoutBox>& text) {
+                float font_size = LayoutEngine::parse_px(text->styled_node->value("font-size"), 16.0f);
+                if (font_size <= 0) font_size = 16.0f;
+                const CustomFont* custom = CustomFonts::select(text->styled_node->value("font-family"), text->styled_node->value("font-weight"), text->styled_node->value("font-style"));
+                const float scale = font_size / RendererState::base_font_size;
+                const float font_height = Renderer::get_line_height(font_size, custom);
+                const float row = text->dimensions.content.height / static_cast<float>(std::max(1, text->text_line_count));
+                // a wrapped text sits on the baseline of its first line when it starts the line, of its last otherwise
+                const float rows_above = text->text_line_count > 1 ? static_cast<float>(text->text_line_count - 1) * row : 0.0f;
+                return text->dimensions.content.y + rows_above + std::max(0.0f, row - font_height) / 2.0f + Renderer::scaled_ascent(font_size, custom);
+            };
+            auto is_replaced = [](const LayoutBox& box) {
+                const std::string& tag = box.styled_node->node->tag_name;
+                return tag == "img" || tag == "svg" || tag == "video" || tag == "canvas";
+            };
+            auto is_control = [](const LayoutBox& box) {
+                const std::string& tag = box.styled_node->node->tag_name;
+                return tag == "input" || tag == "select" || tag == "textarea" || tag == "button" || tag == "progress";
+            };
+            // the baseline of a box found from its content: the first text of an inline, the last line of an inline-block
+            std::function<bool(const std::shared_ptr<LayoutBox>&, bool, float&)> baseline_of =
+                [&](const std::shared_ptr<LayoutBox>& box, bool last, float& out) -> bool {
+                if (box->styled_node->node->type() == NodeType::Text) {
+                    // a text that goes on over several lines has a baseline for each; which one belongs to this line is not known here
+                    if (is_whitespace_node(box) || box->text_line_count > 1) return false;
+                    out = text_baseline(box);
+                    return true;
+                }
+                if (is_control(*box)) return false;
+                if (is_replaced(*box)) {
+                    out = box->dimensions.content.y + box->dimensions.content.height + box->dimensions.padding.bottom +
+                          box->dimensions.border.bottom + side(box->dimensions.margin.bottom);
+                    return true;
+                }
+                if (last) {
+                    for (auto it = box->children.rbegin(); it != box->children.rend(); ++it)
+                        if (baseline_of(*it, true, out)) return true;
+                } else {
+                    for (const auto& child : box->children)
+                        if (baseline_of(child, false, out)) return true;
+                }
+                return false;
+            };
+            std::vector<std::pair<std::shared_ptr<LayoutBox>, float>> baselines;
+            float lowest = -1e9f;
+            for (const auto& box : line) {
+                if (is_whitespace_node(box) || middle_aligned(box) || box->is_empty_inline()) continue;
+                const bool text = box->styled_node->node->type() == NodeType::Text;
+                if (!text && box->box_type != BoxType::Inline && box->box_type != BoxType::InlineBlock) continue;
+                float baseline = 0;
+                if (!baseline_of(box, box->box_type == BoxType::InlineBlock, baseline)) {
+                    if (box->box_type != BoxType::InlineBlock || is_control(*box)) continue;
+                    baseline = box->dimensions.content.y + box->dimensions.content.height + box->dimensions.padding.bottom +
+                               box->dimensions.border.bottom + side(box->dimensions.margin.bottom);
+                }
+                baselines.push_back({box, baseline});
+                lowest = std::max(lowest, baseline);
+            }
+            for (const auto& entry : baselines) {
+                const float shift = lowest - entry.second;
+                if (shift < 0.25f) continue;
+                const auto& box = entry.first;
+                Dimensions shifted;
+                shifted.content.x = box->dimensions.content.x - side(box->dimensions.margin.left) - box->dimensions.padding.left - box->dimensions.border.left;
+                shifted.content.y = box->dimensions.content.y - side(box->dimensions.margin.top) - box->dimensions.padding.top - box->dimensions.border.top + shift;
+                shifted.content.width = relayout_width(box);
+                shifted.content.height = box->dimensions.content.height;
+                box->layout(shifted);
+            }
+        }
+
         std::string text_align = styled_node->value("text-align");
         if (text_align == "left" || text_align.empty())
             return;
@@ -147,7 +233,7 @@ namespace linweb
                 Dimensions box_container;
                 box_container.content.x = box->dimensions.content.x - box->dimensions.margin.left - box->dimensions.padding.left - box->dimensions.border.left;
                 box_container.content.y = box->dimensions.content.y - box->dimensions.margin.top - box->dimensions.padding.top - box->dimensions.border.top;
-                box_container.content.width = box->dimensions.content.width;
+                box_container.content.width = relayout_width(box);
                 box_container.content.height = box->dimensions.content.height;
                 box->layout(box_container);
             }
@@ -232,14 +318,13 @@ namespace linweb
     {
         float orig_content_width = dimensions.content.width;
 
+        // only a line before the first block keeps the margin of that block apart from the parent's
         bool parent_has_inline_content = false;
         for (const auto &c : normal_flow_children)
         {
-            if ((c->box_type == BoxType::Inline || c->box_type == BoxType::InlineBlock || c->styled_node->node->type() == NodeType::Text) && !is_whitespace_node(c))
-            {
-                parent_has_inline_content = true;
-                break;
-            }
+            if (is_whitespace_node(c)) continue;
+            parent_has_inline_content = c->box_type == BoxType::Inline || c->box_type == BoxType::InlineBlock || c->styled_node->node->type() == NodeType::Text;
+            break;
         }
 
         std::string parent_height_prop = styled_node->value("height");

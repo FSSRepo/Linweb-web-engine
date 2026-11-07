@@ -16,6 +16,9 @@ public:
     void register_function(const std::string& name, JSCFunction* func);
     bool call_function(const std::string& name);
 
+    // Runs the promise jobs that are waiting (await, then): they follow every script that runs.
+    void run_pending_jobs();
+
     JSContext* get() const { return ctx; }
 
 private:

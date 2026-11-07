@@ -19,6 +19,20 @@ std::string lower(std::string s) {
     for (char& c : s) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
     return s;
 }
+// Media files are streamed when they play: downloading one with the page would take as long as the whole file (and the
+// downloader refuses more than 64 MiB). That is the case of what an <audio> or <video> plays, and of any resource whose
+// file name says it is audio or video.
+bool is_streamed(const std::string& tag, const std::string& value) {
+    if (tag == "audio" || tag == "video") return true;
+    std::string path = lower(value.substr(0, value.find_first_of("?#")));
+    const size_t dot = path.rfind('.');
+    if (dot == std::string::npos) return false;
+    static const char* const media[] = {".mp3", ".mp4", ".m4a", ".m4v", ".aac", ".ogg", ".oga", ".ogv", ".opus", ".wav",
+                                        ".flac", ".webm", ".mkv", ".mov", ".avi"};
+    const std::string extension = path.substr(dot);
+    for (const char* known : media) if (extension == known) return true;
+    return false;
+}
 std::string trim(const std::string& s) {
     size_t first = s.find_first_not_of(" \t\r\n");
     return first == std::string::npos ? "" : s.substr(first, s.find_last_not_of(" \t\r\n") - first + 1);
@@ -301,7 +315,10 @@ public:
                          (tag.name == "video" && attr.name == "poster") ||
                          (tag.name == "object" && attr.name == "data") ||
                          (tag.name == "link" && attr.name == "href" && link_resource))
-                    replacement = resource(base, attr.value, tag.name == "link" && (stylesheet || lower(tag.get("as")) == "style"), 0);
+                    // what is streamed when it is used (audio, video) keeps its address, made absolute because the page
+                    // is loaded from a local copy; the rest of the files the page depends on are downloaded
+                    replacement = is_streamed(tag.name, attr.value) ? resolve_url(base, attr.value)
+                        : resource(base, attr.value, tag.name == "link" && (stylesheet || lower(tag.get("as")) == "style"), 0);
                 else change = false;
                 if (change) {
                     // All values are quoted, including originally unquoted

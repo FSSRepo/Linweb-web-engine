@@ -2,6 +2,7 @@
 #include "renderer/renderer.h"
 #include "gl_wrapper.h"
 #include <array>
+#include <map>
 #include <string>
 #include <vector>
 #include "stb_truetype.h"
@@ -9,6 +10,7 @@
 namespace linweb {
 
 struct RendererState {
+    static std::map<const void*, int> video_sessions;   // see Renderer::bind_video()
     static unsigned char font_buffer[1 << 20];
     static unsigned char font_bold_buffer[1 << 20];
     static unsigned char font_mono_buffer[1 << 20];
@@ -24,6 +26,8 @@ struct RendererState {
     static float base_font_size;
     static float font_ascent_px;
     static float font_line_height_px;
+    static float font_descent_px;
+    static float font_gap_px;
 
     static int viewport_width;
     static int viewport_height;
@@ -78,12 +82,19 @@ struct RendererState {
     static GLint program_image_a_pos;
     static GLint program_image_a_uv;
 
-    static GLuint program_bg;
-    static GLint program_bg_u_proj;
-    static GLint program_bg_u_model;
-    static GLint program_bg_u_time;
-    static GLint program_bg_a_pos;
-    static GLint program_bg_a_uv;
+    // The shader backgrounds (Renderer::register_shader_background); each program is made the first time it is drawn.
+    struct RegisteredBackground {
+        ShaderBackgroundSpec spec;
+        GLuint program = 0;
+        GLint u_proj = -1;
+        GLint u_model = -1;
+        GLint a_pos = -1;
+        GLint a_uv = -1;
+        bool failed = false;
+    };
+    static std::vector<RegisteredBackground> backgrounds;
+    static bool background_drawn;           // an animated shader background was drawn in this frame
+    static bool background_was_visible;     // ... and in the one before
 
     static void update_proj();
 };
@@ -94,6 +105,9 @@ float parse_length(const std::string& value);
 BoxShadow parse_box_shadow(const std::string& value);
 Filter parse_filter(const std::string& value);
 Gradient parse_gradient(const std::string& value);
+// The name of the shader background a CSS `background` value asks for, or "" when it is not one.
+std::string shader_background_name(const std::string& value);
+const char* shader_background_vertex_source();   // the vertex shader every shader background uses
 GLuint compile_shader(GLenum type, const char* source);
 GLuint link_program(GLuint vs, GLuint fs);
 

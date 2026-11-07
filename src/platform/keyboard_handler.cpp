@@ -12,6 +12,7 @@ namespace linweb {
 // Global state
 extern bool g_show_node_tree;
 extern bool g_debug_mode_active;
+extern bool g_show_profiler;
 extern std::shared_ptr<Node> g_debug_hovered_node;
 extern JSEngine* g_js_engine;
 
@@ -35,6 +36,9 @@ void KeyboardHandler::update() {
 void KeyboardHandler::handle_key(Window* window, Key key, int scancode, Action action, int mods) {
     if (key == Key::F2 && action == Action::Press) {
         g_show_node_tree = !g_show_node_tree;
+    }
+    if (key == Key::F3 && action == Action::Press) {
+        g_show_profiler = !g_show_profiler;
     }
     if (key == Key::D) {
         if (action == Action::Press) g_debug_mode_active = true;
@@ -78,6 +82,7 @@ void KeyboardHandler::handle_key_event(Window*, const KeyEvent& ev) {
         ", metaKey: " + ((ev.mods & ModMeta) ? "true" : "false") +
         ", capsLock: " + ((ev.mods & ModCapsLock) ? "true" : "false") +
         ", repeat: " + (ev.repeat ? "true" : "false") +
+        ", source: " + js_quote(ev.source) +
         ", preventDefault: function() { __preventDefault(); } }";
     std::string type = (ev.action == Action::Release) ? "keyup" : "keydown";
     g_js_engine->dispatch_event("document", type, data);

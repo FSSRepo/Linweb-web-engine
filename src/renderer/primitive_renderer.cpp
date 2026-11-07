@@ -2,19 +2,76 @@
 #include "renderer/renderer_internal.h"
 #include <algorithm>
 #include <chrono>
+#include <iostream>
 
 namespace linweb {
 
-void Renderer::draw_ps3_background(float x, float y, float width, float height) {
-    if (!RendererState::program_bg || RendererState::vbo_color == 0) return;
-    if (width <= 0.0f || height <= 0.0f) return;
+std::string shader_background_name(const std::string& value) {
+    const size_t first = value.find_first_not_of(" \t\r\n");
+    if (first == std::string::npos) return std::string();
+    const std::string name = value.substr(first, value.find_last_not_of(" \t\r\n") - first + 1);
+    for (const auto& background : RendererState::backgrounds) {
+        if (background.spec.name == name) return name;
+    }
+    return std::string();
+}
+
+void Renderer::register_shader_background(ShaderBackgroundSpec spec) {
+    for (auto& background : RendererState::backgrounds) {
+        if (background.spec.name != spec.name) continue;
+        if (background.program) glDeleteProgram(background.program);   // a new shader replaces the old one
+        background = RendererState::RegisteredBackground();
+        background.spec = std::move(spec);
+        return;
+    }
+    RendererState::RegisteredBackground entry;
+    entry.spec = std::move(spec);
+    RendererState::backgrounds.push_back(std::move(entry));
+}
+
+bool Renderer::animated_background_visible() {
+    return RendererState::background_was_visible;
+}
+
+void Renderer::draw_shader_background(const std::string& name, float x, float y, float width, float height, float opacity) {
+    if (RendererState::vbo_color == 0 || width <= 0.0f || height <= 0.0f) return;
+    RendererState::RegisteredBackground* background = nullptr;
+    for (auto& candidate : RendererState::backgrounds) {
+        if (candidate.spec.name == name) { background = &candidate; break; }
+    }
+    if (!background || background->failed) return;
+
+    if (!background->program) {
+        // the first time it is drawn: compile it (the GL context is current while drawing)
+#ifdef WESTON_PLATFORM
+        const std::string& fragment = background->spec.fragment_gles;
+#else
+        const std::string& fragment = background->spec.fragment_gl;
+#endif
+        GLuint vs = compile_shader(GL_VERTEX_SHADER, shader_background_vertex_source());
+        GLuint fs = fragment.empty() ? 0 : compile_shader(GL_FRAGMENT_SHADER, fragment.c_str());
+        if (vs && fs) background->program = link_program(vs, fs);
+        if (vs) glDeleteShader(vs);
+        if (fs) glDeleteShader(fs);
+        if (!background->program) {
+            background->failed = true;
+            std::cerr << "shader background " << name << " did not compile" << std::endl;
+            return;
+        }
+        background->u_proj = glGetUniformLocation(background->program, "uProj");
+        background->u_model = glGetUniformLocation(background->program, "uModel");
+        background->a_pos = glGetAttribLocation(background->program, "aPos");
+        background->a_uv = glGetAttribLocation(background->program, "aUV");
+    }
 
     static const auto start_time = std::chrono::steady_clock::now();
-    float elapsed = std::chrono::duration<float>(std::chrono::steady_clock::now() - start_time).count();
+    const double elapsed = std::chrono::duration<double>(std::chrono::steady_clock::now() - start_time).count();
 
-    glUseProgram(RendererState::program_bg);
-    glUniformMatrix4fv(RendererState::program_bg_u_model, 1, GL_FALSE, RendererState::current_model.data());
-    glUniform1f(RendererState::program_bg_u_time, elapsed);
+    glUseProgram(background->program);
+    glUniformMatrix4fv(background->u_proj, 1, GL_FALSE, RendererState::proj.data());
+    glUniformMatrix4fv(background->u_model, 1, GL_FALSE, RendererState::current_model.data());
+    if (background->spec.set_uniforms) background->spec.set_uniforms(background->program, x, y, width, height, opacity, elapsed);
+    if (background->spec.animated) RendererState::background_drawn = true;
 
     float verts[] = {
         x, y, 0.0f, 0.0f,
@@ -29,15 +86,15 @@ void Renderer::draw_ps3_background(float x, float y, float width, float height) 
     glBindBuffer(GL_ARRAY_BUFFER, RendererState::vbo_color);
     glBufferData(GL_ARRAY_BUFFER, sizeof(verts), verts, GL_STREAM_DRAW);
 
-    glEnableVertexAttribArray(RendererState::program_bg_a_pos);
-    glVertexAttribPointer(RendererState::program_bg_a_pos, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)0);
-    glEnableVertexAttribArray(RendererState::program_bg_a_uv);
-    glVertexAttribPointer(RendererState::program_bg_a_uv, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)(2 * sizeof(float)));
+    glEnableVertexAttribArray(background->a_pos);
+    glVertexAttribPointer(background->a_pos, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)0);
+    glEnableVertexAttribArray(background->a_uv);
+    glVertexAttribPointer(background->a_uv, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)(2 * sizeof(float)));
 
     glDrawArrays(GL_TRIANGLES, 0, 6);
 
-    glDisableVertexAttribArray(RendererState::program_bg_a_pos);
-    glDisableVertexAttribArray(RendererState::program_bg_a_uv);
+    glDisableVertexAttribArray(background->a_pos);
+    glDisableVertexAttribArray(background->a_uv);
     glUseProgram(0);
 }
 

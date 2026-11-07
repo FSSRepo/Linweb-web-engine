@@ -23,7 +23,8 @@ public:
     ~HttpClient();
     HttpClient(const HttpClient&) = delete;
     HttpClient& operator=(const HttpClient&) = delete;
-    HttpResponse get(const std::string& url);
+    // `headers` are added to the request (a Range for example); a 206 Partial Content answer is a success.
+    HttpResponse get(const std::string& url, const std::map<std::string, std::string>& headers = {});
 private:
     struct Impl;
     std::unique_ptr<Impl> impl_;
